@@ -120,3 +120,7 @@ Hallazgos corregidos: (1) intentos fallidos de clave sin límite → bloqueo por
 ## Prueba automática del panel en navegador
 
 `scripts/panel_e2e.js` (Node + Playwright) y `tests/test_panel_e2e.py` (lanza la API en un puerto libre y ejecuta el script; se salta si no hay Node/Playwright: `npm i -g playwright`). Cubre en escritorio y móvil: clave incorrecta, acceso, alta de proxy con limpieza de credenciales y sin contraseña en el DOM, historial, gastos (columna Concepto visible), sin desbordamiento horizontal ni errores de consola, y aviso de permiso para la clave de evaluación en Auditoría. Se comprobó que falla si se reintroduce el fallo CSS anterior. `pytest -q` → **57 passed** (11 noviembre 2026). No cubre modo oscuro, accesibilidad ni otros navegadores.
+
+## Accesibilidad y modo oscuro del panel
+
+Revisión con axe-core 4.10.2 (Playwright, CSP desactivada solo en el navegador de prueba) en claro y oscuro, login y panel: tras corregir el contraste del botón principal en oscuro (`--on-accent`) y las cabeceras de tabla vacías ("Acciones"), **0 violaciones** automáticas. Revisión visual del modo oscuro hecha. Las herramientas automáticas no sustituyen una auditoría con lector de pantalla ni navegación completa por teclado, que no se han hecho. `handoff/CODEX-FINISH.md`: encargo para Codex con lo que puede terminar solo y lo que requiere al propietario.
