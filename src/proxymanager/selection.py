@@ -45,15 +45,15 @@ class ProxyMetrics:
         with self._lock:
             self._inflight[proxy_id] = max(self._inflight.get(proxy_id, 0) - 1, 0)
 
-    def choose(self, country: str | None = None, session_id: str | None = None, acquire: bool = False) -> str:
-        """Elige proxy sano. Con acquire=True cuenta una solicitud en vuelo; hay que llamar a release()."""
+    def choose(self, country: str | None = None, session_id: str | None = None, acquire: bool = False, exclude: frozenset = frozenset()) -> str:
+        """Elige proxy sano (salvo los de `exclude`). Con acquire=True cuenta una solicitud en vuelo; hay que llamar a release()."""
         with sqlite3.connect(self.db_path) as db:
             rows = db.execute("SELECT id FROM proxies" + (" WHERE upper(country)=upper(?)" if country else ""), (country,) if country else ()).fetchall()
             bound = db.execute("SELECT proxy_id FROM session_proxy WHERE session_id=?", (session_id,)).fetchone() if session_id else None
         healthy = {}
         for (pid,) in rows:
             s = self.stats(pid)
-            if s["healthy"]:
+            if s["healthy"] and pid not in exclude:
                 healthy[pid] = s
         if not healthy:
             raise NoHealthyProxy("No hay proxies sanos; ejecuta comprobaciones primero")

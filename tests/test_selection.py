@@ -2,6 +2,7 @@ import socket
 
 import httpx
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from proxymanager.app import create_app
@@ -125,3 +126,50 @@ def test_scrape_transport_error_does_not_echo_exception_text(tmp_path, monkeypat
     with TestClient(create_app(make_settings(tmp_path), transport=httpx.MockTransport(broken))) as c:
         r = c.post("/scrape", headers=E, json={"url": "https://lab.example/"})
     assert r.status_code == 200 and "private-password" not in r.text and r.json()["error"]["message"] == "ConnectError"
+
+
+def _two_healthy(c, tmp_path):
+    ids = [add_proxy(c, host=f"p{i}.example") for i in range(2)]
+    with sqlite3.connect(str(tmp_path / "test.db")) as db:
+        for pid in ids:
+            db.execute("INSERT INTO proxy_events (proxy_id, at, source, reachable, duration_ms) VALUES (?, ?, 'check', 1, 5)", (pid, time.time()))
+    return ids
+
+
+import sqlite3
+import time
+
+
+def test_scrape_fails_over_to_another_proxy_on_transport_error_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("8.8.8.8", 443))])
+    calls = []
+    def flaky(request):
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ConnectError("boom")
+        return httpx.Response(200, text="Producto de prueba")
+    with TestClient(create_app(make_settings(tmp_path, proxy_max_inflight=1, credential_key=Fernet.generate_key().decode()), transport=httpx.MockTransport(flaky))) as c:
+        a, b = _two_healthy(c, tmp_path)
+        sid = c.post("/v1/sessions", headers=E).json()["session_id"]
+        r = c.post("/scrape", headers=E, json={"url": "https://lab.example/", "use_proxy": True, "session_id": sid}).json()
+        assert r.get("success") is True and r["attempts"] == 2 and len(calls) == 2, r
+        first_failed = [p for p in (a, b) if p != r["proxy_id"]][0]
+        assert c.get(f"/v1/proxies/{first_failed}/stats", headers=E).json()["reachable"] == 1   # 1 de 2 eventos: el fallo quedó registrado
+        again = c.post("/scrape", headers=E, json={"url": "https://lab.example/", "use_proxy": True, "session_id": sid}).json()
+        assert again["proxy_id"] == r["proxy_id"]                    # la sesión quedó ligada al proxy que funcionó
+        for _ in range(3):                                           # sin fugas de concurrencia (límite 1)
+            assert c.post("/scrape", headers=E, json={"url": "https://lab.example/", "use_proxy": True}).status_code == 200
+
+
+def test_no_failover_on_site_errors_and_gives_up_when_all_proxies_fail(tmp_path, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("8.8.8.8", 443))])
+    with TestClient(create_app(make_settings(tmp_path), transport=httpx.MockTransport(lambda r: httpx.Response(500, text="x")))) as c:
+        _two_healthy(c, tmp_path)
+        r = c.post("/scrape", headers=E, json={"url": "https://lab.example/", "use_proxy": True}).json()
+        assert r["attempts"] == 1 and r["status_code"] == 500          # el proxy respondió: no es fallo del proxy
+    def down(request):
+        raise httpx.ConnectError("boom")
+    with TestClient(create_app(make_settings(tmp_path / "x" if (tmp_path / "x").mkdir() is None else tmp_path), transport=httpx.MockTransport(down))) as c:
+        _two_healthy(c, tmp_path / "x")
+        r = c.post("/scrape", headers=E, json={"url": "https://lab.example/", "use_proxy": True}).json()
+        assert r["attempts"] == 2 and r["success"] is False and r["error"]["type"] == "transport_error"

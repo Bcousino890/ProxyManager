@@ -276,29 +276,38 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         try:
             cookie_header = cookies.header(request.session_id, owner, request.url) if request.session_id else ""
             on_set_cookie = (lambda headers: cookies.record(request.session_id, owner, request.url, headers)) if request.session_id else None
-            proxy_id, route = None, transport
-            if request.use_proxy:
-                _, hostname = guard_url(request.url, settings)
+            hostname = guard_url(request.url, settings)[1] if request.use_proxy else None
+            tried: set[str] = set()
+            for _ in range(settings.scrape_proxy_attempts if request.use_proxy else 1):
+                proxy_id, route = None, transport
+                if request.use_proxy:
+                    try:
+                        proxy_id = metrics.choose(request.country, request.session_id, acquire=True, exclude=frozenset(tried))
+                    except NoHealthyProxy as exc:
+                        if tried:
+                            break  # sin alternativas: se devuelve el último fallo
+                        raise HTTPException(status_code=503, detail=str(exc)) from exc
+                    except ProxyBusy as exc:
+                        if tried:
+                            break
+                        raise HTTPException(status_code=429, detail=str(exc), headers={"Retry-After": "1"}) from exc
+                    tried.add(proxy_id)
                 try:
-                    proxy_id = metrics.choose(request.country, request.session_id, acquire=True)
-                except NoHealthyProxy as exc:
-                    raise HTTPException(status_code=503, detail=str(exc)) from exc
-                except ProxyBusy as exc:
-                    raise HTTPException(status_code=429, detail=str(exc), headers={"Retry-After": "1"}) from exc
-            try:
+                    if proxy_id:
+                        route = transport or PinnedProxyTransport(health_checks.connection(proxy_id), hostname)
+                    result = await fetch(request.url, settings, route, cookie_header, on_set_cookie)
+                finally:
+                    if proxy_id:
+                        metrics.release(proxy_id)
                 if proxy_id:
-                    route = transport or PinnedProxyTransport(health_checks.connection(proxy_id), hostname)
-                result = await fetch(request.url, settings, route, cookie_header, on_set_cookie)
-            finally:
-                if proxy_id:
-                    metrics.release(proxy_id)
-            if proxy_id:
-                await alerts.record_proxy(metrics, proxy_id, "scrape", result.get("status_code") is not None, result.get("duration_ms"))
+                    await alerts.record_proxy(metrics, proxy_id, "scrape", result.get("status_code") is not None, result.get("duration_ms"))
+                if proxy_id is None or result.get("status_code") is not None:
+                    break  # hubo respuesta HTTP (aunque sea de error del sitio): no se reintenta; solo fallos de transporte
         except DestinationRejected as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
-        return {"request_id": "req_" + uuid.uuid4().hex, "session_id": request.session_id, "proxy_id": proxy_id, **result}
+        return {"request_id": "req_" + uuid.uuid4().hex, "session_id": request.session_id, "proxy_id": proxy_id, "attempts": len(tried) or 1, **result}
 
     return app
 
