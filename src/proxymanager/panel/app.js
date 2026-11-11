@@ -152,12 +152,53 @@ async function loadAudit() {
   }
 }
 
-const loaders = { overview: loadOverview, sessions: loadSessions, bench: loadRuns, expenses: loadExpenses, audit: loadAudit };
+const KEY_SCOPES = ["system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "bench:read", "bench:write", "expenses:read", "expenses:write", "audit:read"];
+function buildScopeBoxes() {
+  const box = $("k-scopes");
+  for (const sc of KEY_SCOPES) {
+    const label = el("label"), input = el("input"); input.type = "checkbox"; input.value = sc;
+    label.append(input, document.createTextNode(sc)); box.append(label);
+  }
+}
+function hideNewKey() { $("k-value").value = ""; $("k-new").classList.add("hidden"); }
+
+async function loadKeys() {
+  const keys = await api("/v1/keys"), body = $("keys"); body.replaceChildren();
+  for (const k of keys) {
+    const tr = el("tr");
+    tr.append(el("td", k.name), el("td", { active: "activa", revoked: "revocada", expired: "caducada" }[k.state] || k.state, k.state === "active" ? "ok" : "muted"), el("td", k.scopes.join(", ")), el("td", k.last_used_at ? new Date(k.last_used_at * 1000).toLocaleString() : "nunca"));
+    const td = el("td");
+    if (k.state === "active") {
+      const b = el("button", "Revocar");
+      b.addEventListener("click", async () => { if (!window.confirm("¿Revocar «" + k.name + "»? Dejará de funcionar de inmediato.")) return; try { await api("/v1/keys/" + k.id, { method: "DELETE" }); await loadKeys(); } catch (e) { say(e.message, "bad"); } });
+      td.append(b);
+    }
+    tr.append(td); body.append(tr);
+  }
+}
+
+async function createKey() {
+  const scopes = [...document.querySelectorAll("#k-scopes input:checked")].map((i) => i.value);
+  const payload = { name: $("k-name").value, scopes };
+  if ($("k-days").value) payload.expires_days = parseFloat($("k-days").value);
+  try {
+    const made = await api("/v1/keys", { method: "POST", body: JSON.stringify(payload) });
+    $("k-value").value = made.key; $("k-new").classList.remove("hidden"); $("k-name").value = ""; $("k-days").value = "";
+    for (const i of document.querySelectorAll("#k-scopes input")) i.checked = false;
+    say("Clave creada. Cópiala ahora.", "ok"); await loadKeys();
+  } catch (e) { say(e.status === 403 ? "Solo la clave de administración puede gestionar claves." : e.message, "bad"); }
+}
+
+async function copyKey() {
+  try { await navigator.clipboard.writeText($("k-value").value); say("Copiada.", "ok"); } catch (e) { $("k-value").select(); say("Selecciona y copia manualmente.", "warn"); }
+}
+
+const loaders = { overview: loadOverview, sessions: loadSessions, bench: loadRuns, expenses: loadExpenses, keys: loadKeys, audit: loadAudit };
 async function show(tab) {
   for (const b of document.querySelectorAll("#tabs button")) b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
   for (const t of Object.keys(loaders)) $("tab-" + t).classList.toggle("hidden", t !== tab);
   $("tab-add").classList.toggle("hidden", tab !== "overview");
-  say("");
+  say(""); hideNewKey();
   try { await loaders[tab](); } catch (e) { say(e.status === 403 ? "Esta clave no tiene permiso para esta sección." : e.message, "bad"); }
 }
 
@@ -170,11 +211,14 @@ async function enter() {
 
 $("enter").addEventListener("click", enter);
 $("key").addEventListener("keydown", (e) => { if (e.key === "Enter") enter(); });
-$("logout").addEventListener("click", () => { key = ""; try { sessionStorage.removeItem("pm_key"); } catch (e) { /* nada */ } setLogged(false); say(""); });
+$("logout").addEventListener("click", () => { key = ""; try { sessionStorage.removeItem("pm_key"); } catch (e) { /* nada */ } setLogged(false); hideNewKey(); say(""); });
 $("refresh").addEventListener("click", () => show("overview"));
 $("b-start").addEventListener("click", startBench);
 $("p-add").addEventListener("click", addProxy);
 $("e-add").addEventListener("click", addExpense);
+$("k-create").addEventListener("click", createKey);
+$("k-copy").addEventListener("click", copyKey);
+buildScopeBoxes();
 $("s-create").addEventListener("click", createSession);
 for (const b of document.querySelectorAll("#tabs button")) b.addEventListener("click", () => show(b.dataset.tab));
 if (key) { api("/v1/system").then(() => { setLogged(true); return show("overview"); }).catch(() => { key = ""; }); }

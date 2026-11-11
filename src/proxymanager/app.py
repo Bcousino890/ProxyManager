@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from .config import Settings
+from .config import SCOPES, Settings
 from .fetch import DestinationRejected, fetch, guard_url
 from .storage import SessionStore
 from .cookies import CookieStore
@@ -20,6 +20,7 @@ from .selection import NoHealthyProxy, ProxyBusy, ProxyMetrics
 from .transport import PinnedProxyTransport
 from .bench import BenchConflict, BenchRunner, BenchStore
 from .expenses import ExpenseStore
+from .keys import ApiKeyStore
 from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
 from .alerts import AlertService
@@ -42,6 +43,12 @@ class BenchCreate(BaseModel):
     rps: float | None = None
     use_proxy: bool = True
     country: str | None = None
+
+
+class KeyCreate(BaseModel):
+    name: str
+    scopes: list[str]
+    expires_days: float | None = None
 
 
 class ExpenseCreate(BaseModel):
@@ -67,6 +74,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     metrics = ProxyMetrics(settings.db_path, settings.proxy_window_seconds, settings.proxy_min_success_rate, settings.proxy_max_inflight)
     bench = BenchStore(settings.db_path)
     expenses = ExpenseStore(settings.db_path)
+    api_keys = ApiKeyStore(settings.db_path, SCOPES)
     alerts = AlertService(settings.alert_webhook_url, alert_transport)
     health_checks = ProxyHealth(proxies, settings, transport, metrics, alerts)
     bench_runner = BenchRunner(bench, metrics, health_checks, settings, transport)
@@ -108,10 +116,11 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             if wait:
                 raise HTTPException(status_code=429, detail="Demasiados intentos fallidos", headers={"Retry-After": str(int(wait) + 1)})
             role = role_of(x_api_key)
-            if role is None:
+            granted = settings.scopes_for(role) if role else (api_keys.lookup(x_api_key) if x_api_key else None)
+            if granted is None:
                 failures.record(client)
                 raise HTTPException(status_code=401, detail="Clave API inválida")
-            if scope not in settings.scopes_for(role):
+            if scope not in granted:
                 raise HTTPException(status_code=403, detail=f"La clave no tiene el alcance {scope}")
             return throttle(store.owner_id(x_api_key), request)
         return dependency
@@ -223,6 +232,22 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.get("/v1/benchmarks")
     def list_benchmarks(owner: str = Depends(require("bench:read"))):
         return bench.recent(owner)
+
+    @app.post("/v1/keys", status_code=201)
+    def create_key(request: KeyCreate, _: str = Depends(require("keys:manage"))):
+        try:
+            return api_keys.create(request.name, request.scopes, request.expires_days)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/v1/keys")
+    def list_keys(_: str = Depends(require("keys:manage"))):
+        return api_keys.list()
+
+    @app.delete("/v1/keys/{key_id}", status_code=204)
+    def revoke_key(key_id: str, _: str = Depends(require("keys:manage"))):
+        if not api_keys.revoke(key_id):
+            raise HTTPException(404, "Clave no encontrada o ya revocada")
 
     @app.get("/v1/expenses")
     def list_expenses(_: str = Depends(require("expenses:read"))):

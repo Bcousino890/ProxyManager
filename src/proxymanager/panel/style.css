@@ -27,3 +27,5 @@ summary{cursor:pointer;font-weight:600;margin-bottom:8px}
 progress{width:100%;height:14px;margin:6px 0 12px}
 .detail td{background:var(--bg);font-size:13px}
 #sessions td:first-child{overflow-wrap:anywhere}
+fieldset{border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:8px 12px}legend{color:var(--muted);font-size:13px;padding:0 4px}
+fieldset label{display:inline-flex;align-items:center;gap:6px;margin:4px 14px 4px 0;color:var(--ink);font-size:14px}fieldset input{width:auto;min-height:0}

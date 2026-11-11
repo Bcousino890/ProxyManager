@@ -21,6 +21,7 @@
     <button data-tab="sessions" aria-pressed="false">Sesiones</button>
     <button data-tab="bench" aria-pressed="false">Benchmarks</button>
     <button data-tab="expenses" aria-pressed="false">Gastos</button>
+    <button data-tab="keys" aria-pressed="false">Claves</button>
     <button data-tab="audit" aria-pressed="false">Auditoría</button>
   </nav>
   <section id="tab-sessions" class="card hidden">
@@ -74,6 +75,21 @@
       <button id="b-start" class="primary">Lanzar</button>
     </div>
     <div class="wrap"><table class="table"><thead><tr><th>Id</th><th>Estado</th><th>Hechas</th><th>Resultados</th><th>p50 / p95 (ms)</th><th>Acciones</th></tr></thead><tbody id="runs"></tbody></table></div>
+  </section>
+  <section id="tab-keys" class="card hidden">
+    <h2>Claves API</h2>
+    <p class="muted">Crea claves con solo los permisos necesarios. Se muestran una única vez y solo se guarda su huella.</p>
+    <div class="row">
+      <div><label for="k-name">Nombre</label><input id="k-name" maxlength="60" placeholder="p. ej. evaluador-1"></div>
+      <div><label for="k-days">Caduca en (días, opcional)</label><input id="k-days" type="number" min="1" max="3650"></div>
+    </div>
+    <fieldset id="k-scopes"><legend>Permisos</legend></fieldset>
+    <button id="k-create" class="primary">Crear clave</button>
+    <div id="k-new" class="hidden">
+      <label for="k-value">Clave nueva — cópiala ahora; no se volverá a mostrar</label>
+      <div class="row"><input id="k-value" readonly><button id="k-copy">Copiar</button></div>
+    </div>
+    <div class="wrap"><table class="table"><thead><tr><th>Nombre</th><th>Estado</th><th>Permisos</th><th>Último uso</th><th>Acciones</th></tr></thead><tbody id="keys"></tbody></table></div>
   </section>
   <section id="tab-audit" class="card hidden">
     <h2>Auditoría reciente</h2>

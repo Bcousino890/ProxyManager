@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from cryptography.fernet import Fernet
 
 
-SCOPES = ("expenses:read", "expenses:write", "bench:read", "bench:write", "system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "audit:read")
+SCOPES = ("keys:manage", "expenses:read", "expenses:write", "bench:read", "bench:write", "system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "audit:read")
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,8 @@ class Settings:
         for name, key in (("EVALUATOR_KEY", self.evaluator_key), ("ADMIN_KEY", self.admin_key)):
             if len(key) < 16:
                 found.append(f"PROXYMANAGER_{name} falta o tiene menos de 16 caracteres")
+        if "keys:manage" in self.evaluator_scopes:
+            found.append("La clave de evaluación no puede tener keys:manage")
         if unknown := set(self.evaluator_scopes) - set(SCOPES):
             found.append("Alcances desconocidos: " + ", ".join(sorted(unknown)))
         if self.evaluator_key and self.evaluator_key == self.admin_key:
