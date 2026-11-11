@@ -1,5 +1,7 @@
 # Estado comprobado — 11 noviembre 2026
 
+Este archivo conserva un historial cronológico de avances. Las listas iniciales describen cortes anteriores; el estado vigente se resume en `README.md` y `docs/roadmap.md`, con las evidencias más recientes al final de este archivo.
+
 ## Implementado
 
 - Paquete Python instalable; FastAPI/OpenAPI, `/health`, `/ready`, `/v1/system`, sesiones y `/scrape`.
@@ -43,7 +45,7 @@ Prueba real posterior: un proxy contra robots.txt de Zinto devolvió error de tr
 
 La biblioteca httpcore usaba la IP fijada como nombre TLS dentro del túnel CONNECT. Se añadió un transporte que conserva CONNECT a la IP validada y verifica el certificado TLS contra el hostname original. No se desactivó la validación de certificados. Las diez conexiones devolvieron HTTP 200 y contenido esperado a través de la API; evidencia en `docs/reports/2026-11-11-api-proxy-checks.json`.
 
-Concurrencia y capacidad de cola configurables por entorno. Al arrancar un único proceso API, los trabajos pendientes anteriores se marcan `interrupted`; no se reenvían automáticamente. El historial conserva destino sin query para evitar persistir secretos de URL. Despliegue actual requiere un solo worker; múltiples procesos necesitan coordinación adicional.
+Concurrencia y capacidad de cola configurables por entorno. Esta nota registra el diseño inicial; la recuperación actual de comprobaciones mediante lease y reintentos se documenta más abajo. El historial conserva destino sin query para evitar persistir secretos de URL.
 
 El propietario confirmó que dispone de VPS, pero no de acceso DataDome. Se han solicitado los datos no secretos del VPS. No se ha realizado despliegue.
 
@@ -73,7 +75,7 @@ Cada endpoint exige un alcance (`system:read`, `sessions`, `scrape`, `proxies:re
 
 ## Avance: worker persistente de comprobaciones
 
-Las comprobaciones ya no dependen de `BackgroundTasks`. `PROXYMANAGER_HEALTH_CONCURRENCY` workers asíncronos reclaman trabajos de SQLite de forma atómica (`BEGIN IMMEDIATE`, estados `queued → running → completed/failed`). Un trabajo `running` cuyo lease (`PROXYMANAGER_HEALTH_LEASE_SECONDS`, 120) expira vuelve a `queued`; tras `PROXYMANAGER_HEALTH_MAX_ATTEMPTS` (3) intentos queda `failed` con `max_attempts`. Los trabajos pendientes sobreviven a reinicios y varios procesos pueden compartir la base sin duplicar trabajo (atomicidad probada con reclamaciones secuenciales, no con carga multiproceso real). Cambio de comportamiento: el estado `interrupted` ya no existe; la URL de destino se ejecuta sin query (la que se persiste). Aún no hay cola genérica para benchmarks, solo para comprobaciones. `pytest -q` → **36 passed** (11 noviembre 2026).
+`PROXYMANAGER_HEALTH_CONCURRENCY` workers asíncronos reclaman comprobaciones de SQLite de forma atómica (`BEGIN IMMEDIATE`, estados `queued → running → completed/failed`). Un trabajo `running` cuyo lease (`PROXYMANAGER_HEALTH_LEASE_SECONDS`, 120) expira vuelve a `queued`; tras `PROXYMANAGER_HEALTH_MAX_ATTEMPTS` (3) intentos queda `failed` con `max_attempts`. Los trabajos pendientes sobreviven a reinicios y varios procesos pueden compartir la base sin duplicar trabajo (atomicidad probada con reclamaciones secuenciales, no con carga multiproceso real). La URL de destino se ejecuta sin query (la que se persiste). `pytest -q` → **36 passed** (11 noviembre 2026).
 
 ## Avance: selección de proxy por salud y métricas
 
@@ -124,3 +126,31 @@ Hallazgos corregidos: (1) intentos fallidos de clave sin límite → bloqueo por
 ## Accesibilidad y modo oscuro del panel
 
 Revisión con axe-core 4.10.2 (Playwright, CSP desactivada solo en el navegador de prueba) en claro y oscuro, login y panel: tras corregir el contraste del botón principal en oscuro (`--on-accent`) y las cabeceras de tabla vacías ("Acciones"), **0 violaciones** automáticas. Revisión visual del modo oscuro hecha. Las herramientas automáticas no sustituyen una auditoría con lector de pantalla ni navegación completa por teclado, que no se han hecho. `handoff/CODEX-FINISH.md`: encargo para Codex con lo que puede terminar solo y lo que requiere al propietario.
+
+## Codex finish: CI (11 noviembre 2026)
+
+Se añadió `.github/workflows/ci.yml` para ejecutar `pytest -q` con Python 3.12 en push y pull request. Verificación local previa al commit: `.venv/bin/pytest -q` → 56 passed, 1 skipped, 1 warning. La ejecución en GitHub Actions queda pendiente hasta el push; no se atribuye aquí un resultado de CI todavía.
+
+## Codex finish: sesiones en panel (11 noviembre 2026)
+
+`GET /v1/sessions` devuelve solo sesiones activas del propietario autenticado y requiere alcance `sessions`; la pestaña «Sesiones» permite crear, listar y borrar la propia sesión y sus cookies. El panel conserva CSP estricta y construye contenido dinámico con `textContent`. Evidencia local: `NPM_CONFIG_PREFIX=/tmp/pm-npm .venv/bin/pytest -q` → 58 passed, 1 warning; `NPM_CONFIG_PREFIX=/tmp/pm-npm AXE=1 .venv/bin/pytest -q tests/test_panel_e2e.py` → 1 passed, 1 warning. Esta ejecución de axe incluye la pestaña de sesiones en claro y oscuro y reportó cero violaciones WCAG automáticas. Playwright y axe se instalaron fuera del repositorio en `/tmp/pm-npm`; CI normal no requiere Node.
+
+## Codex finish: alertas webhook opcionales (11 noviembre 2026)
+
+Implementado `PROXYMANAGER_ALERT_WEBHOOK_URL` (vacío por defecto). Si se configura, solo acepta HTTPS sin credenciales ni fragmento. El servicio emite un aviso al pasar de sano a no sano según las métricas existentes y otro al superar el 80 % del presupuesto mensual registrado manualmente. Los cuerpos contienen únicamente tipo de evento, identificador de proxy o mes, y cifras de gasto; excluyen conceptos, claves, credenciales y destinos. Las pruebas usan `httpx.MockTransport`: comprueban que sin configurar no hay envíos, que el aviso de salud ocurre una sola vez por transición y que el concepto privado no aparece en la alerta de presupuesto. Evidencia: `NPM_CONFIG_PREFIX=/tmp/pm-npm .venv/bin/pytest -q` → 62 passed, 1 warning. No se ha configurado ni contactado ningún webhook real. La entrega del aviso es de mejor esfuerzo y no tiene reintentos persistentes.
+
+## Codex finish: copia de seguridad SQLite (11 noviembre 2026)
+
+`scripts/backup.sh` crea una copia consistente con `sqlite3 .backup`, directorio 0700, archivo 0600 y retención por días configurable. La clave de cifrado se respalda aparte; el script no la lee. `docs/deploy.md` describe uso y restauración. Evidencia: `.venv/bin/pytest -q tests/test_backup.py` → 1 passed; el test abre la copia, comprueba una fila, permisos y eliminación de una copia de diez días. Pendiente comprobar el programa de copias y una restauración en un VPS autorizado.
+
+## Codex finish: laboratorio local de clasificación (11 noviembre 2026)
+
+`tests/lab_server.py` sirve cinco casos solo en loopback: contenido esperado, CAPTCHA genérico, redirección, lentitud y respuesta cortada. `tests/test_local_lab.py` ejercita `fetch` con DNS y transporte de prueba, sin tráfico externo. Evidencia: `.venv/bin/pytest -q tests/test_local_lab.py` → 1 passed. El clasificador existente distingue los casos observados; no se cambió sin evidencia de un fallo. Diferencias y límites en `docs/lab.md`. No equivale a una prueba de DataDome real.
+
+## Codex finish: documentación de fases (11 noviembre 2026)
+
+`README.md` y `docs/roadmap.md` separan fases 2, 4, 5 y 6 hechas en código de fases 3, 7 y 8 pendientes. `docs/reports/validation-template.md` contiene solo apartados vacíos, sin resultados inventados. Se retiraron del texto vigente las descripciones antiguas de recuperación de comprobaciones; los benchmarks sí mantienen su estado `failed: interrupted` al reiniciar, según `src/proxymanager/bench.py:76-79` y `tests/test_bench.py:86-93`. Pendientes: DataDome real, 100.000 solicitudes, 30 días de operación, despliegue y gasto AWS/VPS, IP/ASN/geolocalización mediante servicio aprobado, y revisión de seguridad independiente. Estas tareas requieren acceso, autorización o tiempo real del propietario.
+
+## CI de GitHub recuperado (12 noviembre 2026, hora de Madrid)
+
+Tras la incidencia de GitHub Actions, se creó el commit vacío `23a4a4c` para generar una ejecución nueva sin cambiar código. La ejecución de pull request [43116283882](https://github.com/Bcousino890/ProxyManager/actions/runs/43116283882) terminó correctamente: `gh run watch 43116283882 --repo Bcousino890/ProxyManager --interval 5 --exit-status` → salida 0; el paso `pytest -q` registró **63 passed, 1 skipped, 1 warning in 5.40s** en Python 3.12. La prueba del panel se omite en CI sin Playwright. En local, `NPM_CONFIG_PREFIX=/tmp/pm-npm .venv/bin/pytest -q` → 64 passed, 1 warning. Las ejecuciones antiguas de la incidencia seguían en cola al comprobarlo y están sustituidas por esta ejecución verde.

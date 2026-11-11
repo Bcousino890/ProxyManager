@@ -18,10 +18,17 @@
 <div id="app" class="hidden">
   <nav id="tabs">
     <button data-tab="overview" aria-pressed="true">Proxies</button>
+    <button data-tab="sessions" aria-pressed="false">Sesiones</button>
     <button data-tab="bench" aria-pressed="false">Benchmarks</button>
     <button data-tab="expenses" aria-pressed="false">Gastos</button>
     <button data-tab="audit" aria-pressed="false">Auditoría</button>
   </nav>
+  <section id="tab-sessions" class="card hidden">
+    <h2>Mis sesiones</h2>
+    <p class="muted">Las sesiones caducadas no aparecen. Borrar una sesión elimina también sus cookies.</p>
+    <button id="s-create" class="primary">Crear sesión</button>
+    <div class="wrap"><table class="table"><thead><tr><th>Identificador</th><th>Creada</th><th>Caduca</th><th>Acciones</th></tr></thead><tbody id="sessions"></tbody></table></div>
+  </section>
   <section id="tab-overview" class="card">
     <h2>Proxies <span id="summary" class="muted"></span></h2>
     <div class="row"><div><label for="checkurl">URL de comprobación (host permitido)</label><input id="checkurl" placeholder="https://…"></div><button id="refresh">Actualizar</button></div>

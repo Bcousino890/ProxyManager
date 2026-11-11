@@ -76,6 +76,31 @@ async function loadExpenses() {
   for (const e of d.entries) { const tr = el("tr"); tr.append(el("td", new Date(e.at * 1000).toLocaleDateString()), el("td", e.concept), el("td", e.amount_usd.toFixed(2))); body.append(tr); }
 }
 
+async function loadSessions() {
+  const items = await api("/v1/sessions"), body = $("sessions"); body.replaceChildren();
+  if (!items.length) {
+    const tr = el("tr"), td = el("td", "No tienes sesiones activas."); td.colSpan = 4; tr.append(td); body.append(tr);
+  }
+  for (const item of items) {
+    const tr = el("tr"), actions = el("td"), remove = el("button", "Borrar sesión");
+    remove.setAttribute("aria-label", "Borrar sesión " + item.session_id);
+    remove.addEventListener("click", async () => {
+      if (!window.confirm("¿Borrar esta sesión y sus cookies?")) return;
+      remove.disabled = true;
+      try { await api("/v1/sessions/" + encodeURIComponent(item.session_id), { method: "DELETE" }); await loadSessions(); say("Sesión borrada.", "ok"); }
+      catch (e) { remove.disabled = false; say(e.message, "bad"); }
+    });
+    actions.append(remove);
+    tr.append(el("td", item.session_id), el("td", new Date(item.created_at * 1000).toLocaleString()), el("td", new Date(item.expires_at * 1000).toLocaleString()), actions);
+    body.append(tr);
+  }
+}
+
+async function createSession() {
+  try { await api("/v1/sessions", { method: "POST" }); await loadSessions(); say("Sesión creada.", "ok"); }
+  catch (e) { say(e.message, "bad"); }
+}
+
 async function addExpense() {
   try {
     await api("/v1/expenses", { method: "POST", body: JSON.stringify({ concept: $("e-concept").value, amount_usd: parseFloat($("e-amount").value) }) });
@@ -127,7 +152,7 @@ async function loadAudit() {
   }
 }
 
-const loaders = { overview: loadOverview, bench: loadRuns, expenses: loadExpenses, audit: loadAudit };
+const loaders = { overview: loadOverview, sessions: loadSessions, bench: loadRuns, expenses: loadExpenses, audit: loadAudit };
 async function show(tab) {
   for (const b of document.querySelectorAll("#tabs button")) b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
   for (const t of Object.keys(loaders)) $("tab-" + t).classList.toggle("hidden", t !== tab);
@@ -150,6 +175,7 @@ $("refresh").addEventListener("click", () => show("overview"));
 $("b-start").addEventListener("click", startBench);
 $("p-add").addEventListener("click", addProxy);
 $("e-add").addEventListener("click", addExpense);
+$("s-create").addEventListener("click", createSession);
 for (const b of document.querySelectorAll("#tabs button")) b.addEventListener("click", () => show(b.dataset.tab));
 if (key) { api("/v1/system").then(() => { setLogged(true); return show("overview"); }).catch(() => { key = ""; }); }
 setInterval(() => { if (key && !document.hidden && !$("tab-bench").classList.contains("hidden")) loadRuns().catch(() => {}); }, 5000);

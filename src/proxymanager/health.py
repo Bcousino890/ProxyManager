@@ -17,8 +17,8 @@ class QueueFull(ValueError):
 
 
 class ProxyHealth:
-    def __init__(self, store, settings, transport=None, metrics=None):
-        self.store, self.settings, self.transport, self.metrics = store, settings, transport, metrics
+    def __init__(self, store, settings, transport=None, metrics=None, alerts=None):
+        self.store, self.settings, self.transport, self.metrics, self.alerts = store, settings, transport, metrics, alerts
         with sqlite3.connect(store.db_path) as db:
             db.execute('CREATE TABLE IF NOT EXISTS proxy_checks (id TEXT PRIMARY KEY, proxy_id TEXT, created REAL, state TEXT, result TEXT)')
             columns = {r[1] for r in db.execute('PRAGMA table_info(proxy_checks)')}
@@ -92,13 +92,19 @@ class ProxyHealth:
             result = await fetch(url, self.settings, transport)
             result.pop('html', None)
             if self.metrics:
-                self.metrics.record(proxy_id, 'check', result.get('status_code') is not None, result.get('duration_ms'))
+                if self.alerts:
+                    await self.alerts.record_proxy(self.metrics, proxy_id, 'check', result.get('status_code') is not None, result.get('duration_ms'))
+                else:
+                    self.metrics.record(proxy_id, 'check', result.get('status_code') is not None, result.get('duration_ms'))
             if 'error' in result:
                 result['error'] = {'type': 'transport_error'}
         except Exception:
             result = {'success': False, 'error': {'type': 'check_failed'}}
             if self.metrics:
-                self.metrics.record(proxy_id, 'check', False)
+                if self.alerts:
+                    await self.alerts.record_proxy(self.metrics, proxy_id, 'check', False)
+                else:
+                    self.metrics.record(proxy_id, 'check', False)
         with sqlite3.connect(self.store.db_path) as db:
             db.execute("UPDATE proxy_checks SET state='completed', result=? WHERE id=? AND state='running'", (json.dumps(result), job_id))
 

@@ -18,5 +18,11 @@
 ## Dominio gratuito y temporal (para pruebas de horas)
 No hace falta comprar ni registrar nada: con la IP pública del servidor, `A-B-C-D.sslip.io` resuelve a esa IP sin cuenta (por ejemplo `203.0.113.5` → `203-0-113-5.sslip.io`). Usa ese nombre como `PM_DOMAIN`; Caddy obtendrá el certificado de Let's Encrypt si 80/443 están abiertos. Es un servicio de terceros y compartido (límites de Let's Encrypt incluidos): válido para una prueba breve, no para producción. Alternativa sin dominio ni puertos públicos: túnel SSH al puerto 8000 del servidor. Para uso continuado, usa un dominio propio.
 
+## Copias de seguridad de SQLite
+
+Con la base persistente en `/data/proxymanager.db`, ejecuta `scripts/backup.sh /ruta/al/volumen/proxymanager.db /ruta/privada/backups 7` desde el host. Requiere `sqlite3` CLI. Usa `sqlite3 .backup` para una copia consistente mientras la API está activa, crea el directorio con modo 0700 y cada copia con 0600. El último argumento conserva siete días de copias (mínimo uno); solo elimina los archivos `proxymanager-*.sqlite3` antiguos de ese directorio. Programa el comando con el planificador del servidor y comprueba periódicamente que una copia puede abrirse y restaurarse. Mantén las copias fuera del volumen que se pueda borrar junto con la instancia.
+
+La clave de cifrado `PROXYMANAGER_CREDENTIAL_KEY` debe guardarse y respaldarse **por separado** con acceso restringido. El script solo copia SQLite: no lee ni incluye `.env` ni la clave. Sin esa clave, las credenciales de proxies y cookies cifradas no se recuperan aunque la base se restaure.
+
 ## Antes de exponerlo
-Siguen pendientes revisión de seguridad, copias de seguridad del volumen `/data` **y de la clave Fernet por separado** (sin la clave, las credenciales cifradas son irrecuperables), alertas y monitorización. Un solo proceso significa sin alta disponibilidad: un reinicio corta las ejecuciones en curso (los benchmarks quedan `failed: interrupted`).
+Siguen pendientes una revisión de seguridad independiente, despliegue autorizado y monitorización de las copias y alertas. Un solo proceso significa que no hay alta disponibilidad: un reinicio corta las ejecuciones en curso; los benchmarks quedan como `failed: interrupted`.

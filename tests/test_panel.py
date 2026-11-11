@@ -21,6 +21,8 @@ def test_panel_is_static_with_strict_headers_and_no_inline_code(tmp_path):
         assert script.status_code == 200 and "javascript" in script.headers["content-type"]
         assert "innerHTML" not in script.text.replace("nunca innerHTML", "")   # solo textContent
         assert "admin-secret" not in page.text + script.text
+        assert 'data-tab="sessions"' in page.text
+        assert 'innerHTML' not in script.text.replace('nunca innerHTML', '')
 
 
 def test_overview_and_benchmark_list_require_scopes(tmp_path):

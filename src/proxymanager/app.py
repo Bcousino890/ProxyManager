@@ -22,6 +22,7 @@ from .bench import BenchConflict, BenchRunner, BenchStore
 from .expenses import ExpenseStore
 from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
+from .alerts import AlertService
 
 
 class ProxyCreate(BaseModel):
@@ -55,7 +56,7 @@ class ScrapeRequest(BaseModel):
     use_proxy: bool = False
 
 
-def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None, alert_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = SessionStore(settings.db_path)
     cookies = CookieStore(settings.db_path, settings.credential_key, store, settings.allowed_hosts)
@@ -66,7 +67,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     metrics = ProxyMetrics(settings.db_path, settings.proxy_window_seconds, settings.proxy_min_success_rate, settings.proxy_max_inflight)
     bench = BenchStore(settings.db_path)
     expenses = ExpenseStore(settings.db_path)
-    health_checks = ProxyHealth(proxies, settings, transport, metrics)
+    alerts = AlertService(settings.alert_webhook_url, alert_transport)
+    health_checks = ProxyHealth(proxies, settings, transport, metrics, alerts)
     bench_runner = BenchRunner(bench, metrics, health_checks, settings, transport)
 
     @asynccontextmanager
@@ -157,6 +159,10 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     def create_session(owner: str = Depends(require("sessions"))):
         return store.create(owner, settings.session_ttl_seconds)
 
+    @app.get("/v1/sessions")
+    def list_sessions(owner: str = Depends(require("sessions"))):
+        return store.list_active(owner)
+
     @app.get("/v1/audit")
     def audit_events(limit: int = 100, _: str = Depends(require("audit:read"))):
         return audit.recent(limit)
@@ -223,9 +229,14 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         return expenses.month(settings.monthly_budget_usd)
 
     @app.post("/v1/expenses", status_code=201)
-    def add_expense(request: ExpenseCreate, _: str = Depends(require("expenses:write"))):
+    async def add_expense(request: ExpenseCreate, _: str = Depends(require("expenses:write"))):
         try:
-            return expenses.add(request.concept, request.amount_usd)
+            before = expenses.month(settings.monthly_budget_usd)["spent_usd"] if settings.alert_webhook_url else 0
+            item = expenses.add(request.concept, request.amount_usd)
+            if settings.alert_webhook_url:
+                after = expenses.month(settings.monthly_budget_usd)
+                await alerts.budget_crossed(after["month"], before, after["spent_usd"], settings.monthly_budget_usd)
+            return item
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -282,7 +293,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
                 if proxy_id:
                     metrics.release(proxy_id)
             if proxy_id:
-                metrics.record(proxy_id, "scrape", result.get("status_code") is not None, result.get("duration_ms"))
+                await alerts.record_proxy(metrics, proxy_id, "scrape", result.get("status_code") is not None, result.get("duration_ms"))
         except DestinationRejected as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
