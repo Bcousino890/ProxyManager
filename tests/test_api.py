@@ -90,3 +90,26 @@ def test_private_dns_answer_is_rejected(tmp_path, monkeypatch):
         result = client.post("/scrape", headers={"X-API-Key": "eval-secret"}, json={"url": "https://lab.example/"})
     assert result.status_code == 422
     assert not called
+
+
+def test_proxy_registration_requires_admin_and_hides_credentials(tmp_path):
+    from cryptography.fernet import Fernet
+    settings = make_settings(tmp_path, credential_key=Fernet.generate_key().decode())
+    app = create_app(settings)
+    payload = {"provider": "test-provider", "host": "proxy.example", "port": 8080, "kind": "isp", "country": "ES", "username": "sample-user", "password": "sample-pass"}
+    with TestClient(app) as client:
+        assert client.post("/v1/proxies", headers={"X-API-Key": "eval-secret"}, json=payload).status_code == 403
+        created = client.post("/v1/proxies", headers={"X-API-Key": "admin-secret"}, json=payload)
+        assert created.status_code == 201
+        listed = client.get("/v1/proxies", headers={"X-API-Key": "eval-secret"})
+        assert listed.status_code == 200
+        assert listed.json()[0]["provider"] == "test-provider"
+        assert "sample-pass" not in listed.text
+    assert b"sample-pass" not in (tmp_path / "test.db").read_bytes()
+
+
+def test_credentials_require_encryption_key(tmp_path):
+    app = create_app(make_settings(tmp_path, credential_key=""))
+    with TestClient(app) as client:
+        result = client.post("/v1/proxies", headers={"X-API-Key": "admin-secret"}, json={"provider": "test", "host": "proxy.example", "port": 8080, "kind": "isp", "country": "ES", "username": "u", "password": "p"})
+    assert result.status_code == 503

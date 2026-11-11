@@ -27,13 +27,13 @@ La URL de ejemplo no funcionará hasta autorizar un destino real y configurar el
 
 ## Reglas revisables
 
-Las variables de `.env.example` controlan claves, destinos, patrón de contenido esperado, duración de sesiones, tiempo de espera, tamaño máximo de respuesta y presupuesto indicativo. Los valores del encargo son parámetros iniciales, no reglas fijas. Cambiar `.env` y reiniciar el servicio modifica el comportamiento sin editar código. No se interpreta `MONTHLY_BUDGET_USD` como un límite de gasto efectivo todavía.
+Las variables de `.env.example` controlan claves, clave de cifrado, destinos, patrón de contenido esperado, duración de sesiones, tiempo de espera, tamaño máximo de respuesta y presupuesto indicativo. Los valores del encargo son parámetros iniciales, no reglas fijas. Cambiar `.env` y reiniciar el servicio modifica el comportamiento sin editar código. No se interpreta `MONTHLY_BUDGET_USD` como un límite de gasto efectivo todavía.
 
 ## Estado comprobable
 
-Implementado: API FastAPI, OpenAPI, salud, claves, sesiones persistentes SQLite aisladas por clave, acceso HTTPS con allowlist, rechazo de IP privada/reservada, DNS resuelto antes de conectar, conexión fijada a la IP comprobada, no seguimiento de redirecciones y clasificación inicial de contenido. Las pruebas usan transporte simulado: no envían solicitudes a terceros.
+Implementado: API FastAPI, OpenAPI, salud, claves, sesiones persistentes SQLite aisladas por clave, catálogo de proxies con credenciales cifradas, acceso HTTPS con allowlist, rechazo de IP privada/reservada, DNS resuelto antes de conectar, conexión fijada a la IP comprobada, no seguimiento de redirecciones y clasificación inicial de contenido. Las pruebas usan transporte simulado: no envían solicitudes a terceros. El registro de un proxy con credenciales requiere `PROXYMANAGER_CREDENTIAL_KEY`; la API nunca devuelve usuario ni contraseña. El catálogo aún no utiliza esos proxies para enviar tráfico.
 
-Pendiente: permisos administrativos separados, cookies persistentes, conexiones proxy, verificación DataDome real, análisis CAPTCHA con OpenCV, workers, benchmark, métricas, costes efectivos, panel, HTTPS público, monitorización y operación durante 30 días. La detección de desafío por palabras clave es preliminar. `bytes_transferred` mide bytes de contenido recibidos por HTTPX, no el tráfico de red comprimido. No se ha probado DataDome real, ni 100.000 solicitudes, ni disponibilidad mensual. **No despliegues esta versión como API pública.**
+Pendiente: uso efectivo y comprobación de conexiones proxy, cookies persistentes, verificación DataDome real, análisis CAPTCHA con OpenCV, workers, benchmark, métricas, costes efectivos, panel, HTTPS público, monitorización y operación durante 30 días. La detección de desafío por palabras clave es preliminar. `bytes_transferred` mide bytes de contenido recibidos por HTTPX, no el tráfico de red comprimido. No se ha probado DataDome real, ni 100.000 solicitudes, ni disponibilidad mensual. **No despliegues esta versión como API pública.**
 
 ## Verificación
 

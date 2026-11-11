@@ -6,6 +6,7 @@ import os
 class Settings:
     db_path: str = "proxymanager.db"
     evaluator_key: str = ""
+    credential_key: str = ""
     admin_key: str = ""
     allowed_hosts: tuple[str, ...] = ()
     expected_text: str = ""
@@ -20,6 +21,7 @@ class Settings:
         return cls(
             db_path=os.getenv("PROXYMANAGER_DB_PATH", "proxymanager.db"),
             evaluator_key=os.getenv("PROXYMANAGER_EVALUATOR_KEY", ""),
+            credential_key=os.getenv("PROXYMANAGER_CREDENTIAL_KEY", ""),
             admin_key=os.getenv("PROXYMANAGER_ADMIN_KEY", ""),
             allowed_hosts=hosts,
             expected_text=os.getenv("PROXYMANAGER_EXPECTED_TEXT", ""),

@@ -65,3 +65,14 @@
 - [ ] Add install/run instructions and configuration defaults.
 - [ ] Run full pytest and package install check.
 - [ ] Commit.
+
+### Task 5: Admin proxy catalog
+
+**Files:** `src/proxymanager/proxies.py`, `src/proxymanager/app.py`, `src/proxymanager/config.py`, `tests/test_api.py`
+
+**Interfaces:** `ProxyStore.create(...)` and `ProxyStore.list()`; `POST /v1/proxies` admin only.
+
+- [x] Write failing test for admin-only creation and encrypted credentials.
+- [x] Confirm RED; implement; confirm GREEN.
+- [x] Test missing encryption key.
+- [ ] Commit.
