@@ -49,6 +49,6 @@ El propietario confirmó que dispone de VPS, pero no de acceso DataDome. Se han 
 
 El propietario eligió AWS por horas para las pruebas y pospuso la elección del servidor mensual. Plan y condiciones en `docs/research/2026-11-11-aws-test-plan.md`. No se ha comprado ni creado ningún recurso AWS.
 
-Comparación de pruebas AWS temporales: Lightsail 4 GB resulta más simple y probablemente más barato que EC2 t3a.medium para el mismo tamaño; desglose y fuentes en `docs/research/2026-11-11-aws-ec2-vs-lightsail.md`. No se creó instancia.
+Comparación de pruebas AWS temporales en Europa (España): Lightsail 4 GB cuesta 0,03225 USD/h con disco e IPv4 incluidos; EC2 t3.medium x86 comparable cuesta 0,04560 USD/h más IPv4 (0,005 USD/h) y disco EBS gp3 de 80 GB (7,04 USD/mes). La t3a.medium usada como referencia anterior no figura en esa región. Desglose y fuentes en `docs/research/2026-11-11-aws-ec2-vs-lightsail.md`. No se creó instancia.
 
 Objetivo de coste total: desarrollar localmente, usar Lightsail para pruebas remotas breves y considerar Netcup VPS Lite 1 G12.5s para operación continua. Su precio publicado actual es 5,86 €/mes con contrato y facturación de 6 meses (35,16 € al precio mostrado); confirmar el importe para España antes de comprar. Comparación y fuentes en `docs/research/2026-11-11-netcup-lite-vs-aws.md`. No se contrató ningún servicio.
