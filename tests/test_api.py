@@ -127,3 +127,42 @@ def test_database_file_is_private(tmp_path):
     settings = make_settings(tmp_path)
     create_app(settings)
     assert (tmp_path / "test.db").stat().st_mode & 0o777 == 0o600
+
+
+def test_session_cookies_roundtrip_persist_and_stay_isolated(tmp_path, monkeypatch):
+    import socket
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setattr(socket, 'getaddrinfo', lambda host, port, type: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('8.8.8.8', 443))])
+    observed = []
+
+    def handler(request):
+        observed.append(request.headers.get('cookie', ''))
+        if request.url.path == '/login':
+            return httpx.Response(200, headers={'Set-Cookie': 'sid=private-cookie; Path=/account; Secure; HttpOnly'}, text='Producto de prueba')
+        return httpx.Response(200, text='Producto de prueba')
+
+    settings = make_settings(tmp_path, credential_key=Fernet.generate_key().decode())
+    headers = {'X-API-Key': 'eval-secret'}
+    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
+        first = client.post('/v1/sessions', headers=headers).json()['session_id']
+        second = client.post('/v1/sessions', headers=headers).json()['session_id']
+        response = client.post('/scrape', headers=headers, json={'url': 'https://lab.example/login', 'session_id': first})
+        assert response.status_code == 200
+        assert 'private-cookie' not in response.text
+    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
+        client.post('/scrape', headers=headers, json={'url': 'https://lab.example/account/orders', 'session_id': first})
+        client.post('/scrape', headers=headers, json={'url': 'https://lab.example/account/orders', 'session_id': second})
+        client.post('/scrape', headers=headers, json={'url': 'https://lab.example/accountant', 'session_id': first})
+        client.delete(f'/v1/sessions/{first}', headers=headers)
+    assert observed == ['', 'sid=private-cookie', '', '']
+    assert b'private-cookie' not in (tmp_path / 'test.db').read_bytes()
+
+
+def test_session_scrape_requires_cookie_encryption_key(tmp_path):
+    app = create_app(make_settings(tmp_path, credential_key=''))
+    with TestClient(app) as client:
+        headers = {'X-API-Key': 'eval-secret'}
+        session_id = client.post('/v1/sessions', headers=headers).json()['session_id']
+        response = client.post('/scrape', headers=headers, json={'url': 'https://lab.example/', 'session_id': session_id})
+        assert response.status_code == 503

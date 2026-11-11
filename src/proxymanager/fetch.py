@@ -1,6 +1,7 @@
 import ipaddress
 import socket
 import time
+from collections.abc import Callable
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -41,14 +42,20 @@ def guard_url(url: str, settings: Settings) -> tuple[str, str]:
     return pinned_url, host
 
 
-async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> dict:
+async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTransport | None = None,
+                cookie_header: str = "", on_set_cookie: Callable[[list[str]], None] | None = None) -> dict:
     pinned_url, host = guard_url(url, settings)
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(transport=transport, timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False) as client:
-            request = client.build_request("GET", pinned_url, headers={"Host": host}, extensions={"sni_hostname": host})
+            headers = {"Host": host}
+            if cookie_header:
+                headers["Cookie"] = cookie_header
+            request = client.build_request("GET", pinned_url, headers=headers, extensions={"sni_hostname": host})
             response = await client.send(request, stream=True)
             try:
+                if on_set_cookie:
+                    on_set_cookie(response.headers.get_list("set-cookie"))
                 content = bytearray()
                 async for chunk in response.aiter_bytes():
                     content.extend(chunk)

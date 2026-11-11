@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from .config import Settings
 from .fetch import DestinationRejected, fetch, guard_url
 from .storage import SessionStore
+from .cookies import CookieStore
 from .proxies import ProxyStore
 from .health import ProxyHealth, QueueFull
 
@@ -33,6 +34,7 @@ class ScrapeRequest(BaseModel):
 def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = SessionStore(settings.db_path)
+    cookies = CookieStore(settings.db_path, settings.credential_key, store, settings.allowed_hosts)
     proxies = ProxyStore(settings.db_path, settings.credential_key)
     health_checks = ProxyHealth(proxies, settings, transport)
     @asynccontextmanager
@@ -116,8 +118,12 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     async def scrape(request: ScrapeRequest, owner: str = Depends(authenticated)):
         if request.session_id and store.get(request.session_id, owner) is None:
             raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        if request.session_id and not settings.credential_key:
+            raise HTTPException(status_code=503, detail="Configura PROXYMANAGER_CREDENTIAL_KEY para usar sesiones HTTP")
         try:
-            result = await fetch(request.url, settings, transport)
+            cookie_header = cookies.header(request.session_id, owner, request.url) if request.session_id else ""
+            on_set_cookie = (lambda headers: cookies.record(request.session_id, owner, request.url, headers)) if request.session_id else None
+            result = await fetch(request.url, settings, transport, cookie_header, on_set_cookie)
         except DestinationRejected as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
