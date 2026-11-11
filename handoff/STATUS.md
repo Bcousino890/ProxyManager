@@ -124,3 +124,7 @@ Hallazgos corregidos: (1) intentos fallidos de clave sin límite → bloqueo por
 ## Accesibilidad y modo oscuro del panel
 
 Revisión con axe-core 4.10.2 (Playwright, CSP desactivada solo en el navegador de prueba) en claro y oscuro, login y panel: tras corregir el contraste del botón principal en oscuro (`--on-accent`) y las cabeceras de tabla vacías ("Acciones"), **0 violaciones** automáticas. Revisión visual del modo oscuro hecha. Las herramientas automáticas no sustituyen una auditoría con lector de pantalla ni navegación completa por teclado, que no se han hecho. `handoff/CODEX-FINISH.md`: encargo para Codex con lo que puede terminar solo y lo que requiere al propietario.
+
+## Codex finish: CI (11 noviembre 2026)
+
+Se añadió `.github/workflows/ci.yml` para ejecutar `pytest -q` con Python 3.12 en push y pull request. Verificación local previa al commit: `.venv/bin/pytest -q` → 56 passed, 1 skipped, 1 warning. La ejecución en GitHub Actions queda pendiente hasta el push; no se atribuye aquí un resultado de CI todavía.
