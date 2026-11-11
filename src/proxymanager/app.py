@@ -57,15 +57,22 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         request.state.owner = owner
         return owner
 
-    def authenticated(request: Request, x_api_key: str | None = Header(default=None)) -> str:
-        if not x_api_key or not any(key and secrets.compare_digest(x_api_key, key) for key in (settings.evaluator_key, settings.admin_key)):
-            raise HTTPException(status_code=401, detail="Clave API inválida")
-        return throttle(store.owner_id(x_api_key), request)
+    def role_of(api_key: str | None) -> str | None:
+        if api_key and settings.admin_key and secrets.compare_digest(api_key, settings.admin_key):
+            return "admin"
+        if api_key and settings.evaluator_key and secrets.compare_digest(api_key, settings.evaluator_key):
+            return "evaluator"
+        return None
 
-    def administrator(request: Request, x_api_key: str | None = Header(default=None)) -> str:
-        if not x_api_key or not settings.admin_key or not secrets.compare_digest(x_api_key, settings.admin_key):
-            raise HTTPException(status_code=403, detail="Se requiere clave de administración")
-        return throttle(store.owner_id(x_api_key), request)
+    def require(scope: str):
+        def dependency(request: Request, x_api_key: str | None = Header(default=None)) -> str:
+            role = role_of(x_api_key)
+            if role is None:
+                raise HTTPException(status_code=401, detail="Clave API inválida")
+            if scope not in settings.scopes_for(role):
+                raise HTTPException(status_code=403, detail=f"La clave no tiene el alcance {scope}")
+            return throttle(store.owner_id(x_api_key), request)
+        return dependency
 
     @app.middleware("http")
     async def audit_requests(request: Request, call_next):
@@ -87,35 +94,35 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         return {"ready": bool(settings.evaluator_key or settings.admin_key)}
 
     @app.get("/v1/system")
-    def system(_: str = Depends(authenticated)):
+    def system(_: str = Depends(require("system:read"))):
         return {"service": "ProxyManager", "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd}
 
     @app.post("/v1/sessions", status_code=201)
-    def create_session(owner: str = Depends(authenticated)):
+    def create_session(owner: str = Depends(require("sessions"))):
         return store.create(owner, settings.session_ttl_seconds)
 
     @app.get("/v1/audit")
-    def audit_events(limit: int = 100, _: str = Depends(administrator)):
+    def audit_events(limit: int = 100, _: str = Depends(require("audit:read"))):
         return audit.recent(limit)
 
     @app.get("/v1/sessions/{session_id}")
-    def get_session(session_id: str, owner: str = Depends(authenticated)):
+    def get_session(session_id: str, owner: str = Depends(require("sessions"))):
         result = store.get(session_id, owner)
         if result is None:
             raise HTTPException(status_code=404, detail="Sesión no encontrada")
         return result
 
     @app.delete("/v1/sessions/{session_id}", status_code=204)
-    def delete_session(session_id: str, owner: str = Depends(authenticated)):
+    def delete_session(session_id: str, owner: str = Depends(require("sessions"))):
         if not store.delete(session_id, owner):
             raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
     @app.get("/v1/proxies")
-    def list_proxies(_: str = Depends(authenticated)):
+    def list_proxies(_: str = Depends(require("proxies:read"))):
         return proxies.list()
 
     @app.post("/v1/proxies", status_code=201)
-    def create_proxy(request: ProxyCreate, _: str = Depends(administrator)):
+    def create_proxy(request: ProxyCreate, _: str = Depends(require("proxies:write"))):
         if not request.provider.strip() or not request.host.strip() or not request.country.strip() or not 1 <= request.port <= 65535:
             raise HTTPException(status_code=422, detail="Datos de proxy inválidos")
         try:
@@ -124,7 +131,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/v1/proxies/{proxy_id}/checks", status_code=202)
-    def check_proxy(proxy_id: str, request: ScrapeRequest, background: BackgroundTasks, _: str = Depends(administrator)):
+    def check_proxy(proxy_id: str, request: ScrapeRequest, background: BackgroundTasks, _: str = Depends(require("checks:write"))):
         try:
             guard_url(request.url, settings)
             connection = health_checks.connection(proxy_id)
@@ -139,11 +146,11 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         return {"job_id": job_id, "state": "queued"}
 
     @app.get("/v1/proxies/{proxy_id}/checks")
-    def proxy_check_history(proxy_id: str, _: str = Depends(authenticated)):
+    def proxy_check_history(proxy_id: str, _: str = Depends(require("proxies:read"))):
         return health_checks.history(proxy_id)
 
     @app.post("/scrape")
-    async def scrape(request: ScrapeRequest, owner: str = Depends(authenticated)):
+    async def scrape(request: ScrapeRequest, owner: str = Depends(require("scrape"))):
         if request.session_id and store.get(request.session_id, owner) is None:
             raise HTTPException(status_code=404, detail="Sesión no encontrada")
         if request.session_id and not settings.credential_key:

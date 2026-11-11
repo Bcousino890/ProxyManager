@@ -66,3 +66,7 @@ Se añadió `CookieStore`: valores `Set-Cookie` cifrados con Fernet en SQLite, a
 ## Avance: validación de configuración y retención de auditoría
 
 `Settings.problems()` detecta claves ausentes o <16 caracteres, claves iguales, clave Fernet inválida, allowlist vacía y rate limit desactivado. Con `PROXYMANAGER_STRICT=1` el servicio se niega a arrancar si hay problemas (por defecto desactivado para no romper desarrollo/tests). La auditoría se purga al arrancar según `PROXYMANAGER_AUDIT_RETENTION_DAYS` (30). `pytest -q` → **29 passed** (11 noviembre 2026). Permisos granulares siguen pendientes: hoy solo hay dos roles (evaluación/administración).
+
+## Avance: permisos por alcance y límites de cookies
+
+Cada endpoint exige un alcance (`system:read`, `sessions`, `scrape`, `proxies:read`, `proxies:write`, `checks:write`, `audit:read`). La clave admin los tiene todos; los de la clave de evaluación se configuran con `PROXYMANAGER_EVALUATOR_SCOPES` (por defecto sin escritura ni auditoría). Sin clave → 401; sin alcance → 403. Alcances desconocidos se reportan en `Settings.problems()`. Cookies: máx. 4096 bytes por cookie y 50 por sesión (las que exceden se descartan; reemplazar una existente sigue permitido). `pytest -q` → **33 passed** (11 noviembre 2026). Sigue siendo un modelo de dos claves, no multiusuario; sin revisión de seguridad externa.

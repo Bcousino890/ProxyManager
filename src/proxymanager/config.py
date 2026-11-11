@@ -4,6 +4,9 @@ import os
 from cryptography.fernet import Fernet
 
 
+SCOPES = ("system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "audit:read")
+
+
 @dataclass(frozen=True)
 class Settings:
     db_path: str = "proxymanager.db"
@@ -20,6 +23,7 @@ class Settings:
     monthly_budget_usd: float = 25.0
     rate_limit_requests: int = 60
     audit_retention_days: float = 30.0
+    evaluator_scopes: tuple[str, ...] = ("system:read", "sessions", "scrape", "proxies:read")
     strict: bool = False
     rate_limit_window_seconds: float = 60.0
 
@@ -27,12 +31,17 @@ class Settings:
         if min(self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0 or self.audit_retention_days <= 0 or self.rate_limit_requests < 0 or self.rate_limit_window_seconds <= 0:
             raise ValueError("Los límites deben ser positivos")
 
+    def scopes_for(self, role: str) -> frozenset[str]:
+        return frozenset(SCOPES) if role == "admin" else frozenset(self.evaluator_scopes)
+
     def problems(self) -> list[str]:
         """Fallos de configuración que impiden servir de forma segura."""
         found = []
         for name, key in (("EVALUATOR_KEY", self.evaluator_key), ("ADMIN_KEY", self.admin_key)):
             if len(key) < 16:
                 found.append(f"PROXYMANAGER_{name} falta o tiene menos de 16 caracteres")
+        if unknown := set(self.evaluator_scopes) - set(SCOPES):
+            found.append("Alcances desconocidos: " + ", ".join(sorted(unknown)))
         if self.evaluator_key and self.evaluator_key == self.admin_key:
             found.append("Las claves de evaluación y administración deben ser distintas")
         try:
@@ -62,6 +71,7 @@ class Settings:
             max_response_bytes=int(os.getenv("PROXYMANAGER_MAX_RESPONSE_BYTES", "1000000")),
             monthly_budget_usd=float(os.getenv("PROXYMANAGER_MONTHLY_BUDGET_USD", "25")),
             audit_retention_days=float(os.getenv("PROXYMANAGER_AUDIT_RETENTION_DAYS", "30")),
+            evaluator_scopes=tuple(x.strip() for x in os.getenv("PROXYMANAGER_EVALUATOR_SCOPES", ",".join(cls.evaluator_scopes)).split(",") if x.strip()),
             strict=os.getenv("PROXYMANAGER_STRICT", "") == "1",
             rate_limit_requests=int(os.getenv("PROXYMANAGER_RATE_LIMIT_REQUESTS", "60")),
             rate_limit_window_seconds=float(os.getenv("PROXYMANAGER_RATE_LIMIT_WINDOW_SECONDS", "60")),
