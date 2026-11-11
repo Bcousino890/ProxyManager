@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import secrets
 from typing import Literal
 import uuid
@@ -10,7 +11,7 @@ from .config import Settings
 from .fetch import DestinationRejected, fetch, guard_url
 from .storage import SessionStore
 from .proxies import ProxyStore
-from .health import ProxyHealth
+from .health import ProxyHealth, QueueFull
 
 
 class ProxyCreate(BaseModel):
@@ -34,7 +35,12 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     store = SessionStore(settings.db_path)
     proxies = ProxyStore(settings.db_path, settings.credential_key)
     health_checks = ProxyHealth(proxies, settings, transport)
-    app = FastAPI(title="ProxyManager", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(app):
+        health_checks.recover()
+        yield
+
+    app = FastAPI(title="ProxyManager", version="0.1.0", lifespan=lifespan)
 
     def authenticated(x_api_key: str | None = Header(default=None)) -> str:
         if not x_api_key or not any(key and secrets.compare_digest(x_api_key, key) for key in (settings.evaluator_key, settings.admin_key)):
@@ -92,7 +98,9 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         try:
             guard_url(request.url, settings)
             connection = health_checks.connection(proxy_id)
-            job_id = health_checks.queue(proxy_id)
+            job_id = health_checks.queue(proxy_id, request.url)
+        except QueueFull as exc:
+            raise HTTPException(429, "Cola de comprobaciones llena") from exc
         except LookupError as exc:
             raise HTTPException(404, "Proxy no encontrado") from exc
         except ValueError as exc:

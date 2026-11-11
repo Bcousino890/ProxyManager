@@ -44,3 +44,9 @@ Pendiente: uso efectivo y comprobación de conexiones proxy, cookies persistente
 ```
 
 Las pruebas comprueban autenticación, aislamiento de sesiones, autorización de destinos, clasificación de HTTP 200 y conexión a IP fijada. Consulta el [diseño](docs/superpowers/specs/2026-11-11-proxymanager-initial-design.md), el [plan inicial](docs/superpowers/plans/2026-11-11-initial-api.md), la [hoja de ruta de ocho fases](docs/roadmap.md) y el [informe de conectividad](docs/reports/2026-11-11-proxy-connectivity.md). Las diez conexiones de prueba están importadas solo en la base de datos local con credenciales cifradas; no se subieron credenciales a GitHub.
+
+## Salud de proxies
+
+`POST /v1/proxies/{id}/checks` con clave administrativa y cuerpo `{"url":"https://destino-autorizado/ruta"}` devuelve HTTP 202. `GET /v1/proxies/{id}/checks` consulta el historial con clave válida. El destino se valida contra la allowlist; el túnel conecta a una IP pública comprobada y TLS verifica el hostname original. La respuesta no incluye credenciales ni contenido HTML.
+
+Configura `PROXYMANAGER_HEALTH_CONCURRENCY` y `PROXYMANAGER_HEALTH_QUEUE_LIMIT`. Ejecuta **un solo worker** por base de datos: al arrancar se marcan como interrumpidos los trabajos anteriores pendientes. La cola llena devuelve HTTP 429. El historial omite parámetros de consulta de las URLs. El adaptador usa el backend AutoBackend de httpcore 1.0.x, con dependencia acotada y prueba de TLS.

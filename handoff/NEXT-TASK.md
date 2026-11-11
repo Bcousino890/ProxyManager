@@ -1,3 +1,7 @@
-# Siguiente tarea
+# Siguiente entrega
 
-Diagnosticar la diferencia entre el sondeo por nombre (10/10 válido previamente) y el nuevo sondeo con IP fijada (error de transporte en una entrada). Verificar el error sin exponer credenciales y resolver la compatibilidad del túnel proxy manteniendo la autorización de destino y protección SSRF. Después añadir recuperación de trabajos tras reinicio, configuración de concurrencia y retención, y pruebas de persistencia. Los endpoints de comprobación ya están implementados; ver STATUS.md.
+TLS por proxy resuelto y verificado con diez conexiones; ver STATUS.md y el informe JSON. Continuar fase 2 con cookies persistentes cifradas y sesiones HTTP reales, respetando dominio, path, Secure y caducidad. Añadir rate limiting, auditoría, validación de configuración y permisos antes de exponer el servicio.
+
+El usuario confirmó VPS existente, sin DataDome. Esperando proveedor/host/usuario SSH o alias local para inspección de infraestructura. No comprar servicios. Preparar acceso académico a DataDome sin enviarlo a terceros sin autorización.
+
+Los trabajos de salud están limitados y persistidos, pero se ejecutan en un único proceso API. Al reiniciar se marcan interrumpidos; no se reintentan. Para benchmarks duraderos se necesita worker persistente con recuperación.

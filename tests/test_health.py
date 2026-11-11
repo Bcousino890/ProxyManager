@@ -33,3 +33,35 @@ def test_transport_failure_is_redacted(tmp_path, monkeypatch):
         r=c.get(route,headers=h)
         assert 'private-password' not in r.text
         assert r.json()[0]['success'] is False
+
+
+def test_restart_marks_unfinished_jobs_interrupted(tmp_path):
+    from proxymanager.health import ProxyHealth
+    from proxymanager.proxies import ProxyStore
+    settings=Settings(db_path=str(tmp_path/'db'))
+    service=ProxyHealth(ProxyStore(settings.db_path),settings)
+    job=service.queue('example')
+    with TestClient(create_app(settings)):
+        history=service.history('example')
+        assert history[0]['id']==job
+        assert history[0]['state']=='interrupted'
+
+
+def test_queue_capacity_is_configurable(tmp_path):
+    import pytest
+    from proxymanager.health import ProxyHealth, QueueFull
+    from proxymanager.proxies import ProxyStore
+    settings=Settings(db_path=str(tmp_path/'db'),health_queue_limit=1)
+    service=ProxyHealth(ProxyStore(settings.db_path),settings)
+    service.queue('first')
+    with pytest.raises(QueueFull):
+        service.queue('second')
+
+
+def test_history_omits_query_secrets(tmp_path):
+    from proxymanager.health import ProxyHealth
+    from proxymanager.proxies import ProxyStore
+    settings=Settings(db_path=str(tmp_path/'db'))
+    service=ProxyHealth(ProxyStore(settings.db_path),settings)
+    service.queue('example','https://lab.example/path?token=private')
+    assert service.history('example')[0]['target']=='https://lab.example/path'
