@@ -1,5 +1,7 @@
 # ProxyManager
 
+Para continuar en otra sesión de Codex o Claude Code, empieza por [handoff/START-HERE.md](handoff/START-HERE.md).
+
 Plataforma académica para investigar sesiones HTTP, redes proxy, desafíos y mediciones en destinos autorizados. Esta es la **primera versión ejecutable**, no la plataforma final descrita en el encargo del TFG.
 
 ## Inicio local

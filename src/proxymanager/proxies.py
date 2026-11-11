@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import uuid
 
@@ -11,6 +12,8 @@ class ProxyStore:
         self.cipher = Fernet(credential_key.encode()) if credential_key else None
         with sqlite3.connect(self.db_path) as db:
             db.execute("CREATE TABLE IF NOT EXISTS proxies (id TEXT PRIMARY KEY, provider TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, kind TEXT NOT NULL, country TEXT NOT NULL, credentials BLOB)")
+        if self.db_path != ":memory:":
+            os.chmod(self.db_path, 0o600)
 
     def create(self, provider: str, host: str, port: int, kind: str, country: str, username: str | None, password: str | None) -> dict:
         if (username or password) and not self.cipher:
