@@ -11,16 +11,19 @@ from proxymanager.config import Settings
 from proxymanager.app import create_app
 from fastapi.testclient import TestClient
 URL = os.environ.get("PROXYMANAGER_LIVE_URL", "https://zinto.app/robots.txt")
-st = Settings(db_path=os.environ["PROXYMANAGER_DB_PATH"], credential_key=os.environ["PROXYMANAGER_CREDENTIAL_KEY"], admin_key="a"*20, evaluator_key="e"*20, allowed_hosts=(urlsplit(URL).hostname,), expected_text=os.environ.get("PROXYMANAGER_LIVE_EXPECTED", "User-agent"), health_concurrency=2)
+st = Settings(db_path=os.environ["PROXYMANAGER_DB_PATH"], credential_key=os.environ["PROXYMANAGER_CREDENTIAL_KEY"], admin_key="a"*20, evaluator_key="e"*20, allowed_hosts=(urlsplit(URL).hostname,), expected_text=os.environ.get("PROXYMANAGER_LIVE_EXPECTED", "User-agent"), health_concurrency=2, rate_limit_requests=0)  # el script hace muchas consultas; el límite es para clientes externos
 A={"X-API-Key":"a"*20}
 with TestClient(create_app(st)) as c:
     ids=[p["id"] for p in c.get("/v1/proxies",headers=A).json()]
     print("proxies:",len(ids))
     for i in ids: c.post(f"/v1/proxies/{i}/checks",headers=A,json={"url":URL})
-    for _ in range(300):
-        h=[c.get(f"/v1/proxies/{i}/checks",headers=A).json()[0]["state"] for i in ids]
-        if all(x in("completed","failed") for x in h): break
-        time.sleep(0.2)
+    def state(i):
+        h = c.get(f"/v1/proxies/{i}/checks", headers=A).json()
+        return h[0]["state"] if isinstance(h, list) and h else "queued"
+    for _ in range(120):
+        if all(state(i) in ("completed", "failed") for i in ids):
+            break
+        time.sleep(1)
     for i in ids:
         r=c.get(f"/v1/proxies/{i}/checks",headers=A).json()[0]
         print(r["state"], r.get("success"), r.get("status_code"), r.get("duration_ms"), r.get("error"))
