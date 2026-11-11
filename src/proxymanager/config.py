@@ -26,12 +26,14 @@ class Settings:
     monthly_budget_usd: float = 25.0
     rate_limit_requests: int = 60
     audit_retention_days: float = 30.0
+    proxy_window_seconds: float = 3600.0
+    proxy_min_success_rate: float = 0.5
     evaluator_scopes: tuple[str, ...] = ("system:read", "sessions", "scrape", "proxies:read")
     strict: bool = False
     rate_limit_window_seconds: float = 60.0
 
     def __post_init__(self):
-        if min(self.health_max_attempts, self.health_lease_seconds + 1, self.health_poll_seconds, self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0 or self.audit_retention_days <= 0 or self.rate_limit_requests < 0 or self.rate_limit_window_seconds <= 0:
+        if min(self.health_max_attempts, self.health_lease_seconds + 1, self.health_poll_seconds, self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0 or self.audit_retention_days <= 0 or self.proxy_window_seconds <= 0 or not 0 <= self.proxy_min_success_rate <= 1 or self.rate_limit_requests < 0 or self.rate_limit_window_seconds <= 0:
             raise ValueError("Los límites deben ser positivos")
 
     def scopes_for(self, role: str) -> frozenset[str]:
@@ -78,6 +80,8 @@ class Settings:
             monthly_budget_usd=float(os.getenv("PROXYMANAGER_MONTHLY_BUDGET_USD", "25")),
             audit_retention_days=float(os.getenv("PROXYMANAGER_AUDIT_RETENTION_DAYS", "30")),
             evaluator_scopes=tuple(x.strip() for x in os.getenv("PROXYMANAGER_EVALUATOR_SCOPES", ",".join(cls.evaluator_scopes)).split(",") if x.strip()),
+            proxy_window_seconds=float(os.getenv("PROXYMANAGER_PROXY_WINDOW_SECONDS", "3600")),
+            proxy_min_success_rate=float(os.getenv("PROXYMANAGER_PROXY_MIN_SUCCESS_RATE", "0.5")),
             strict=os.getenv("PROXYMANAGER_STRICT", "") == "1",
             rate_limit_requests=int(os.getenv("PROXYMANAGER_RATE_LIMIT_REQUESTS", "60")),
             rate_limit_window_seconds=float(os.getenv("PROXYMANAGER_RATE_LIMIT_WINDOW_SECONDS", "60")),

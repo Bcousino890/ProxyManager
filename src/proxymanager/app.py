@@ -13,6 +13,8 @@ from .fetch import DestinationRejected, fetch, guard_url
 from .storage import SessionStore
 from .cookies import CookieStore
 from .proxies import ProxyStore
+from .selection import NoHealthyProxy, ProxyMetrics
+from .transport import PinnedProxyTransport
 from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
 
@@ -31,6 +33,7 @@ class ScrapeRequest(BaseModel):
     url: str
     country: str | None = None
     session_id: str | None = None
+    use_proxy: bool = False
 
 
 def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
@@ -40,7 +43,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     proxies = ProxyStore(settings.db_path, settings.credential_key)
     limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_window_seconds)
     audit = AuditLog(settings.db_path)
-    health_checks = ProxyHealth(proxies, settings, transport)
+    metrics = ProxyMetrics(settings.db_path, settings.proxy_window_seconds, settings.proxy_min_success_rate)
+    health_checks = ProxyHealth(proxies, settings, transport, metrics)
     @asynccontextmanager
     async def lifespan(app):
         if settings.strict and (found := settings.problems()):
@@ -122,6 +126,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     def delete_session(session_id: str, owner: str = Depends(require("sessions"))):
         if not store.delete(session_id, owner):
             raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        metrics.forget_session(session_id)
 
     @app.get("/v1/proxies")
     def list_proxies(_: str = Depends(require("proxies:read"))):
@@ -150,6 +155,10 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             raise HTTPException(422, "Destino, configuración o capacidad de cola inválidos") from exc
         return {"job_id": job_id, "state": "queued"}
 
+    @app.get("/v1/proxies/{proxy_id}/stats")
+    def proxy_stats(proxy_id: str, _: str = Depends(require("proxies:read"))):
+        return metrics.stats(proxy_id)
+
     @app.get("/v1/proxies/{proxy_id}/checks")
     def proxy_check_history(proxy_id: str, _: str = Depends(require("proxies:read"))):
         return health_checks.history(proxy_id)
@@ -163,12 +172,22 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         try:
             cookie_header = cookies.header(request.session_id, owner, request.url) if request.session_id else ""
             on_set_cookie = (lambda headers: cookies.record(request.session_id, owner, request.url, headers)) if request.session_id else None
-            result = await fetch(request.url, settings, transport, cookie_header, on_set_cookie)
+            proxy_id, route = None, transport
+            if request.use_proxy:
+                _, hostname = guard_url(request.url, settings)
+                try:
+                    proxy_id = metrics.choose(request.country, request.session_id)
+                except NoHealthyProxy as exc:
+                    raise HTTPException(status_code=503, detail=str(exc)) from exc
+                route = transport or PinnedProxyTransport(health_checks.connection(proxy_id), hostname)
+            result = await fetch(request.url, settings, route, cookie_header, on_set_cookie)
+            if proxy_id:
+                metrics.record(proxy_id, "scrape", result.get("status_code") is not None, result.get("duration_ms"))
         except DestinationRejected as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
-        return {"request_id": "req_" + uuid.uuid4().hex, "session_id": request.session_id, **result}
+        return {"request_id": "req_" + uuid.uuid4().hex, "session_id": request.session_id, "proxy_id": proxy_id, **result}
 
     return app
 
