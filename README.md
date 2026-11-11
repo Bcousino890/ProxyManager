@@ -1,52 +1,39 @@
 # ProxyManager
 
-Para continuar en otra sesión de Codex o Claude Code, empieza por [handoff/START-HERE.md](handoff/START-HERE.md).
-
-Plataforma académica para investigar sesiones HTTP, redes proxy, desafíos y mediciones en destinos autorizados. Esta es la **primera versión ejecutable**, no la plataforma final descrita en el encargo del TFG.
+Plataforma académica para estudiar sesiones HTTP, proxies, clasificación de respuestas y mediciones **solo en destinos propios o autorizados**. Las reglas operativas son configurables; el estado y las limitaciones están en [handoff/STATUS.md](handoff/STATUS.md). Para continuar desde otra sesión de Codex o Claude Code, empieza por [handoff/START-HERE.md](handoff/START-HERE.md).
 
 ## Inicio local
 
-Requiere Python 3.12 o superior.
+Requiere Python 3.12 o superior. Usa claves de prueba locales y hosts bajo tu control.
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e '.[test]'
 cp .env.example .env
-# Edita .env; luego exporta las variables en tu entorno.
+# Edita .env, después carga las variables en el entorno.
 set -a; source .env; set +a
 .venv/bin/uvicorn proxymanager.app:app --host 127.0.0.1 --port 8000
 ```
 
-La documentación OpenAPI queda en `http://127.0.0.1:8000/docs`. Sin claves, los endpoints protegidos rechazan las solicitudes. Sin hosts autorizados, `/scrape` rechaza todos los destinos. Configura únicamente hosts públicos bajo tu control o con permiso expreso.
+El panel está en `http://127.0.0.1:8000/panel`. Para uso fuera de localhost, [docs/deploy.md](docs/deploy.md) describe HTTPS y los requisitos de despliegue; esos archivos aún no se han probado en un VPS. La API rechaza destinos fuera de `PROXYMANAGER_ALLOWED_HOSTS`, direcciones privadas o reservadas y conexiones HTTP sin TLS. Fija la IP pública validada antes de conectar y no sigue redirecciones.
 
-```bash
-curl -H 'X-API-Key: CLAVE_DE_EVALUACION' http://127.0.0.1:8000/v1/system
-curl -H 'X-API-Key: CLAVE_DE_EVALUACION' -H 'Content-Type: application/json' \
-  -d '{"url":"https://lab.example/producto"}' http://127.0.0.1:8000/scrape
-```
+## Funciones disponibles en código
 
-La URL de ejemplo no funcionará hasta autorizar un destino real y configurar el texto esperado. El servidor conserva el código HTTP del destino en `status_code`; el HTTP 200 de nuestra API significa que procesó la petición, no que el contenido sea válido. `success` requiere HTTP 200, el texto esperado y ausencia de marcadores básicos de desafío. No se siguen redirecciones.
+- API con claves por alcance, sesiones y cookies cifradas, catálogo de proxies cifrado, comprobaciones persistentes y selección por salud, carga y latencia. El panel permite gestionar proxies, sesiones, benchmarks y gastos manuales.
+- Benchmark acotado por solicitudes, concurrencia y bytes; métricas y resúmenes locales. El máximo por defecto es 1.000 solicitudes por ejecución; no se ha ejecutado el objetivo de 100.000.
+- Rate limiting, auditoría, validación estricta opcional, alertas webhook opcionales (`PROXYMANAGER_ALERT_WEBHOOK_URL`, vacío = desactivadas) y [copias de SQLite](docs/deploy.md). Los avisos de presupuesto se basan en importes introducidos manualmente, no en facturación del proveedor.
+- [Laboratorio local](docs/lab.md) con contenido, CAPTCHA genérico, redirección y fallos de transporte. El clasificador es preliminar; no se ha validado con DataDome real.
 
-## Reglas revisables
+Las comprobaciones de proxy encoladas sobreviven a reinicios mediante leases y reintentos limitados. Un benchmark que estaba ejecutándose al reiniciar queda fallido y no se reintenta automáticamente, para evitar repetir tráfico externo. `bytes_transferred` cuenta bytes de contenido recibidos por HTTPX, no tráfico de red comprimido. Los límites y valores iniciales pueden cambiarse en la configuración con una evaluación apropiada del destino y presupuesto.
 
-Las variables de `.env.example` controlan claves, clave de cifrado, destinos, patrón de contenido esperado, duración de sesiones, tiempo de espera, tamaño máximo de respuesta y presupuesto indicativo. Los valores del encargo son parámetros iniciales, no reglas fijas. Cambiar `.env` y reiniciar el servicio modifica el comportamiento sin editar código. No se interpreta `MONTHLY_BUDGET_USD` como un límite de gasto efectivo todavía.
+## Estado de las fases
 
-## Estado comprobable
+La [hoja de ruta](docs/roadmap.md) separa implementación de validación: las fases 2, 4, 5 y 6 tienen código; las fases 3, 7 y 8 siguen pendientes. Tampoco se ha demostrado 30 días de operación, un despliegue AWS/VPS, IP/ASN/geolocalización de salida, ni una revisión de seguridad independiente. No expongas la API en Internet hasta completar la revisión y el despliegue autorizado.
 
-Implementado: API FastAPI, OpenAPI, salud, claves, sesiones persistentes SQLite aisladas por clave, catálogo de proxies con credenciales cifradas, acceso HTTPS con allowlist, rechazo de IP privada/reservada, DNS resuelto antes de conectar, conexión fijada a la IP comprobada, no seguimiento de redirecciones y clasificación inicial de contenido. Las pruebas usan transporte simulado: no envían solicitudes a terceros. El registro de un proxy con credenciales requiere `PROXYMANAGER_CREDENTIAL_KEY`; la API nunca devuelve usuario ni contraseña. El catálogo aún no utiliza esos proxies para enviar tráfico.
-
-Pendiente: uso efectivo y comprobación de conexiones proxy, cookies persistentes, verificación DataDome real, análisis CAPTCHA con OpenCV, workers, benchmark, métricas, costes efectivos, panel, HTTPS público, monitorización y operación durante 30 días. La detección de desafío por palabras clave es preliminar. `bytes_transferred` mide bytes de contenido recibidos por HTTPX, no el tráfico de red comprimido. No se ha probado DataDome real, ni 100.000 solicitudes, ni disponibilidad mensual. **No despliegues esta versión como API pública.**
-
-## Verificación
+## Pruebas
 
 ```bash
 .venv/bin/pytest -q
 ```
 
-Las pruebas comprueban autenticación, aislamiento de sesiones, autorización de destinos, clasificación de HTTP 200 y conexión a IP fijada. Consulta el [diseño](docs/superpowers/specs/2026-11-11-proxymanager-initial-design.md), el [plan inicial](docs/superpowers/plans/2026-11-11-initial-api.md), la [hoja de ruta de ocho fases](docs/roadmap.md) y el [informe de conectividad](docs/reports/2026-11-11-proxy-connectivity.md). Las diez conexiones de prueba están importadas solo en la base de datos local con credenciales cifradas; no se subieron credenciales a GitHub.
-
-## Salud de proxies
-
-`POST /v1/proxies/{id}/checks` con clave administrativa y cuerpo `{"url":"https://destino-autorizado/ruta"}` devuelve HTTP 202. `GET /v1/proxies/{id}/checks` consulta el historial con clave válida. El destino se valida contra la allowlist; el túnel conecta a una IP pública comprobada y TLS verifica el hostname original. La respuesta no incluye credenciales ni contenido HTML.
-
-Configura `PROXYMANAGER_HEALTH_CONCURRENCY` y `PROXYMANAGER_HEALTH_QUEUE_LIMIT`. Ejecuta **un solo worker** por base de datos: al arrancar se marcan como interrumpidos los trabajos anteriores pendientes. La cola llena devuelve HTTP 429. El historial omite parámetros de consulta de las URLs. El adaptador usa el backend AutoBackend de httpcore 1.0.x, con dependencia acotada y prueba de TLS.
+La suite usa transporte simulado y un servidor en loopback; no envía tráfico a terceros. La prueba del panel se salta si faltan Node o Playwright. Consulta [handoff/STATUS.md](handoff/STATUS.md) para los resultados ejecutados y sus límites.

@@ -1,5 +1,7 @@
 # Estado comprobado — 11 noviembre 2026
 
+Este archivo conserva un historial cronológico de avances. Las listas iniciales describen cortes anteriores; el estado vigente se resume en `README.md` y `docs/roadmap.md`, con las evidencias más recientes al final de este archivo.
+
 ## Implementado
 
 - Paquete Python instalable; FastAPI/OpenAPI, `/health`, `/ready`, `/v1/system`, sesiones y `/scrape`.
@@ -43,7 +45,7 @@ Prueba real posterior: un proxy contra robots.txt de Zinto devolvió error de tr
 
 La biblioteca httpcore usaba la IP fijada como nombre TLS dentro del túnel CONNECT. Se añadió un transporte que conserva CONNECT a la IP validada y verifica el certificado TLS contra el hostname original. No se desactivó la validación de certificados. Las diez conexiones devolvieron HTTP 200 y contenido esperado a través de la API; evidencia en `docs/reports/2026-11-11-api-proxy-checks.json`.
 
-Concurrencia y capacidad de cola configurables por entorno. Al arrancar un único proceso API, los trabajos pendientes anteriores se marcan `interrupted`; no se reenvían automáticamente. El historial conserva destino sin query para evitar persistir secretos de URL. Despliegue actual requiere un solo worker; múltiples procesos necesitan coordinación adicional.
+Concurrencia y capacidad de cola configurables por entorno. Esta nota registra el diseño inicial; la recuperación actual de comprobaciones mediante lease y reintentos se documenta más abajo. El historial conserva destino sin query para evitar persistir secretos de URL.
 
 El propietario confirmó que dispone de VPS, pero no de acceso DataDome. Se han solicitado los datos no secretos del VPS. No se ha realizado despliegue.
 
@@ -73,7 +75,7 @@ Cada endpoint exige un alcance (`system:read`, `sessions`, `scrape`, `proxies:re
 
 ## Avance: worker persistente de comprobaciones
 
-Las comprobaciones ya no dependen de `BackgroundTasks`. `PROXYMANAGER_HEALTH_CONCURRENCY` workers asíncronos reclaman trabajos de SQLite de forma atómica (`BEGIN IMMEDIATE`, estados `queued → running → completed/failed`). Un trabajo `running` cuyo lease (`PROXYMANAGER_HEALTH_LEASE_SECONDS`, 120) expira vuelve a `queued`; tras `PROXYMANAGER_HEALTH_MAX_ATTEMPTS` (3) intentos queda `failed` con `max_attempts`. Los trabajos pendientes sobreviven a reinicios y varios procesos pueden compartir la base sin duplicar trabajo (atomicidad probada con reclamaciones secuenciales, no con carga multiproceso real). Cambio de comportamiento: el estado `interrupted` ya no existe; la URL de destino se ejecuta sin query (la que se persiste). Aún no hay cola genérica para benchmarks, solo para comprobaciones. `pytest -q` → **36 passed** (11 noviembre 2026).
+`PROXYMANAGER_HEALTH_CONCURRENCY` workers asíncronos reclaman comprobaciones de SQLite de forma atómica (`BEGIN IMMEDIATE`, estados `queued → running → completed/failed`). Un trabajo `running` cuyo lease (`PROXYMANAGER_HEALTH_LEASE_SECONDS`, 120) expira vuelve a `queued`; tras `PROXYMANAGER_HEALTH_MAX_ATTEMPTS` (3) intentos queda `failed` con `max_attempts`. Los trabajos pendientes sobreviven a reinicios y varios procesos pueden compartir la base sin duplicar trabajo (atomicidad probada con reclamaciones secuenciales, no con carga multiproceso real). La URL de destino se ejecuta sin query (la que se persiste). `pytest -q` → **36 passed** (11 noviembre 2026).
 
 ## Avance: selección de proxy por salud y métricas
 
@@ -144,3 +146,7 @@ Implementado `PROXYMANAGER_ALERT_WEBHOOK_URL` (vacío por defecto). Si se config
 ## Codex finish: laboratorio local de clasificación (11 noviembre 2026)
 
 `tests/lab_server.py` sirve cinco casos solo en loopback: contenido esperado, CAPTCHA genérico, redirección, lentitud y respuesta cortada. `tests/test_local_lab.py` ejercita `fetch` con DNS y transporte de prueba, sin tráfico externo. Evidencia: `.venv/bin/pytest -q tests/test_local_lab.py` → 1 passed. El clasificador existente distingue los casos observados; no se cambió sin evidencia de un fallo. Diferencias y límites en `docs/lab.md`. No equivale a una prueba de DataDome real.
+
+## Codex finish: documentación de fases (11 noviembre 2026)
+
+`README.md` y `docs/roadmap.md` separan fases 2, 4, 5 y 6 hechas en código de fases 3, 7 y 8 pendientes. `docs/reports/validation-template.md` contiene solo apartados vacíos, sin resultados inventados. Se retiraron del texto vigente las descripciones antiguas de recuperación de comprobaciones; los benchmarks sí mantienen su estado `failed: interrupted` al reiniciar, según `src/proxymanager/bench.py:76-79` y `tests/test_bench.py:86-93`. Pendientes: DataDome real, 100.000 solicitudes, 30 días de operación, despliegue y gasto AWS/VPS, IP/ASN/geolocalización mediante servicio aprobado, y revisión de seguridad independiente. Estas tareas requieren acceso, autorización o tiempo real del propietario.
