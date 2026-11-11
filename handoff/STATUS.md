@@ -140,3 +140,7 @@ Implementado `PROXYMANAGER_ALERT_WEBHOOK_URL` (vacío por defecto). Si se config
 ## Codex finish: copia de seguridad SQLite (11 noviembre 2026)
 
 `scripts/backup.sh` crea una copia consistente con `sqlite3 .backup`, directorio 0700, archivo 0600 y retención por días configurable. La clave de cifrado se respalda aparte; el script no la lee. `docs/deploy.md` describe uso y restauración. Evidencia: `.venv/bin/pytest -q tests/test_backup.py` → 1 passed; el test abre la copia, comprueba una fila, permisos y eliminación de una copia de diez días. Pendiente comprobar el programa de copias y una restauración en un VPS autorizado.
+
+## Codex finish: laboratorio local de clasificación (11 noviembre 2026)
+
+`tests/lab_server.py` sirve cinco casos solo en loopback: contenido esperado, CAPTCHA genérico, redirección, lentitud y respuesta cortada. `tests/test_local_lab.py` ejercita `fetch` con DNS y transporte de prueba, sin tráfico externo. Evidencia: `.venv/bin/pytest -q tests/test_local_lab.py` → 1 passed. El clasificador existente distingue los casos observados; no se cambió sin evidencia de un fallo. Diferencias y límites en `docs/lab.md`. No equivale a una prueba de DataDome real.
