@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 import os
 
+from cryptography.fernet import Fernet
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -17,11 +19,31 @@ class Settings:
     health_queue_limit: int = 20
     monthly_budget_usd: float = 25.0
     rate_limit_requests: int = 60
+    audit_retention_days: float = 30.0
+    strict: bool = False
     rate_limit_window_seconds: float = 60.0
 
     def __post_init__(self):
-        if min(self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0 or self.rate_limit_requests < 0 or self.rate_limit_window_seconds <= 0:
+        if min(self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0 or self.audit_retention_days <= 0 or self.rate_limit_requests < 0 or self.rate_limit_window_seconds <= 0:
             raise ValueError("Los límites deben ser positivos")
+
+    def problems(self) -> list[str]:
+        """Fallos de configuración que impiden servir de forma segura."""
+        found = []
+        for name, key in (("EVALUATOR_KEY", self.evaluator_key), ("ADMIN_KEY", self.admin_key)):
+            if len(key) < 16:
+                found.append(f"PROXYMANAGER_{name} falta o tiene menos de 16 caracteres")
+        if self.evaluator_key and self.evaluator_key == self.admin_key:
+            found.append("Las claves de evaluación y administración deben ser distintas")
+        try:
+            Fernet(self.credential_key.encode())
+        except Exception:
+            found.append("PROXYMANAGER_CREDENTIAL_KEY falta o no es una clave Fernet válida")
+        if not self.allowed_hosts:
+            found.append("PROXYMANAGER_ALLOWED_HOSTS está vacío")
+        if self.rate_limit_requests == 0:
+            found.append("El rate limiting está desactivado")
+        return found
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -39,6 +61,8 @@ class Settings:
             timeout_seconds=float(os.getenv("PROXYMANAGER_TIMEOUT_SECONDS", "15")),
             max_response_bytes=int(os.getenv("PROXYMANAGER_MAX_RESPONSE_BYTES", "1000000")),
             monthly_budget_usd=float(os.getenv("PROXYMANAGER_MONTHLY_BUDGET_USD", "25")),
+            audit_retention_days=float(os.getenv("PROXYMANAGER_AUDIT_RETENTION_DAYS", "30")),
+            strict=os.getenv("PROXYMANAGER_STRICT", "") == "1",
             rate_limit_requests=int(os.getenv("PROXYMANAGER_RATE_LIMIT_REQUESTS", "60")),
             rate_limit_window_seconds=float(os.getenv("PROXYMANAGER_RATE_LIMIT_WINDOW_SECONDS", "60")),
         )

@@ -42,6 +42,9 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     health_checks = ProxyHealth(proxies, settings, transport)
     @asynccontextmanager
     async def lifespan(app):
+        if settings.strict and (found := settings.problems()):
+            raise RuntimeError("Configuración insegura: " + "; ".join(found))
+        audit.purge(settings.audit_retention_days)
         health_checks.recover()
         yield
 

@@ -62,3 +62,7 @@ Se añadió `CookieStore`: valores `Set-Cookie` cifrados con Fernet en SQLite, a
 ## Avance: rate limiting y auditoría
 
 `RateLimiter` (ventana deslizante en memoria por propietario, seguro entre hilos) aplicado a todos los endpoints autenticados: 429 con `Retry-After`. Configurable con `PROXYMANAGER_RATE_LIMIT_REQUESTS` (60; 0 desactiva) y `PROXYMANAGER_RATE_LIMIT_WINDOW_SECONDS` (60). Solo válido con un único proceso API. `AuditLog` guarda en SQLite hora, hash de propietario, método, ruta genérica y estado — sin clave, query, cuerpo ni URL; consulta en `GET /v1/audit` (administración). Prueba: `pytest -q` → **26 passed** (11 noviembre 2026), sin tráfico externo. Nota: el trabajo equivalente de Codex no llegó a GitHub (límite de uso), así que se reimplementó aquí; la API sigue sin revisión de seguridad ni permisos granulares: no exponer a Internet.
+
+## Avance: validación de configuración y retención de auditoría
+
+`Settings.problems()` detecta claves ausentes o <16 caracteres, claves iguales, clave Fernet inválida, allowlist vacía y rate limit desactivado. Con `PROXYMANAGER_STRICT=1` el servicio se niega a arrancar si hay problemas (por defecto desactivado para no romper desarrollo/tests). La auditoría se purga al arrancar según `PROXYMANAGER_AUDIT_RETENTION_DAYS` (30). `pytest -q` → **29 passed** (11 noviembre 2026). Permisos granulares siguen pendientes: hoy solo hay dos roles (evaluación/administración).

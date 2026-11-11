@@ -46,3 +46,7 @@ class AuditLog:
         with self._connect() as db:
             rows = db.execute("SELECT at, owner, method, route, status FROM audit_events ORDER BY id DESC LIMIT ?", (min(limit, 500),)).fetchall()
         return [dict(zip(("at", "owner", "method", "route", "status"), r)) for r in rows]
+
+    def purge(self, retention_days: float) -> int:
+        with self._connect() as db:
+            return db.execute("DELETE FROM audit_events WHERE at < ?", (time.time() - retention_days * 86400,)).rowcount
