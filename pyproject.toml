@@ -22,5 +22,8 @@ test = ["pytest>=8,<10"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+proxymanager = ["panel/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

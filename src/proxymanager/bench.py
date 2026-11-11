@@ -50,6 +50,11 @@ class BenchStore:
             return None
         return {"id": row[0], "created_at": row[2], "started_at": row[3], "finished_at": row[4], "state": row[5], "params": json.loads(row[6]), "summary": json.loads(row[7]), "cancel_requested": bool(row[8])}
 
+    def recent(self, owner: str, limit: int = 20) -> list[dict]:
+        with sqlite3.connect(self.db_path) as db:
+            ids = [r[0] for r in db.execute("SELECT id FROM bench_runs WHERE owner=? ORDER BY created DESC LIMIT ?", (owner, min(limit, 100))).fetchall()]
+        return [self.get(i, owner) for i in ids]
+
     def cancel(self, run_id: str, owner: str) -> bool:
         with sqlite3.connect(self.db_path) as db:
             n = db.execute("UPDATE bench_runs SET cancel=1 WHERE id=? AND owner=? AND state IN ('queued','running')", (run_id, owner)).rowcount

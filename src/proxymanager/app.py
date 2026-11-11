@@ -5,6 +5,9 @@ from typing import Literal
 import uuid
 
 import httpx
+from pathlib import Path
+
+from fastapi.responses import FileResponse
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
@@ -109,6 +112,22 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             route = request.scope.get("route")
             audit.record(getattr(request.state, "owner", None), request.method, getattr(route, "path", "(sin ruta)"), status)
 
+    panel_dir = Path(__file__).parent / "panel"
+    panel_headers = {"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+                     "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}
+
+    @app.get("/panel", include_in_schema=False)
+    def panel_page():
+        return FileResponse(panel_dir / "index.html", media_type="text/html", headers=panel_headers)
+
+    @app.get("/panel/style.css", include_in_schema=False)
+    def panel_style():
+        return FileResponse(panel_dir / "style.css", media_type="text/css", headers=panel_headers)
+
+    @app.get("/panel/app.js", include_in_schema=False)
+    def panel_script():
+        return FileResponse(panel_dir / "app.js", media_type="text/javascript", headers=panel_headers)
+
     @app.get("/health")
     def health():
         return {"service": "ProxyManager", "status": "ok"}
@@ -181,6 +200,16 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             raise HTTPException(422, str(exc)) from exc
         except BenchConflict as exc:
             raise HTTPException(409, str(exc)) from exc
+
+    @app.get("/v1/benchmarks")
+    def list_benchmarks(owner: str = Depends(require("bench:read"))):
+        return bench.recent(owner)
+
+    @app.get("/v1/overview")
+    def overview(_: str = Depends(require("proxies:read"))):
+        items = [{**p, "stats": metrics.stats(p["id"])} for p in proxies.list()]
+        healthy = sum(1 for p in items if p["stats"]["healthy"])
+        return {"proxies": items, "healthy": healthy, "total": len(items), "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd}
 
     @app.get("/v1/benchmarks/{run_id}")
     def get_benchmark(run_id: str, owner: str = Depends(require("bench:read"))):

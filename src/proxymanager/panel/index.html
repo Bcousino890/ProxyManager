@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProxyManager</title>
+<link rel="stylesheet" href="/panel/style.css">
+</head>
+<body>
+<header><h1>ProxyManager</h1><span id="who" class="muted"></span><button id="logout" class="hidden">Salir</button></header>
+<main>
+<section id="login" class="card">
+  <h2>Acceder</h2>
+  <label for="key">Clave API (no se guarda en disco; se pierde al cerrar la pestaña)</label>
+  <div class="row"><input id="key" type="password" autocomplete="off"><button id="enter" class="primary">Entrar</button></div>
+</section>
+<div id="msg" role="status" aria-live="polite"></div>
+<div id="app" class="hidden">
+  <nav id="tabs">
+    <button data-tab="overview" aria-pressed="true">Proxies</button>
+    <button data-tab="bench" aria-pressed="false">Benchmarks</button>
+    <button data-tab="audit" aria-pressed="false">Auditoría</button>
+  </nav>
+  <section id="tab-overview" class="card">
+    <h2>Proxies <span id="summary" class="muted"></span></h2>
+    <div class="row"><div><label for="checkurl">URL de comprobación (host permitido)</label><input id="checkurl" placeholder="https://…"></div><button id="refresh">Actualizar</button></div>
+    <div class="wrap"><table class="table"><thead><tr><th>Proxy</th><th>País</th><th>Estado</th><th>Éxito</th><th>Latencia</th><th></th></tr></thead><tbody id="proxies"></tbody></table></div>
+  </section>
+  <section id="tab-bench" class="card hidden">
+    <h2>Benchmarks</h2>
+    <p class="muted">Solo contra destinos autorizados. Los topes los fija el servidor.</p>
+    <div class="row">
+      <div><label for="b-url">URL</label><input id="b-url" placeholder="https://…"></div>
+      <div><label for="b-req">Solicitudes</label><input id="b-req" type="number" min="1" value="50"></div>
+      <div><label for="b-con">Concurrencia</label><input id="b-con" type="number" min="1" value="2"></div>
+      <div><label for="b-rps">Máx. rps (opcional)</label><input id="b-rps" type="number" min="0.1" step="0.1"></div>
+      <button id="b-start" class="primary">Lanzar</button>
+    </div>
+    <div class="wrap"><table class="table"><thead><tr><th>Id</th><th>Estado</th><th>Hechas</th><th>Resultados</th><th>p50 / p95 (ms)</th><th></th></tr></thead><tbody id="runs"></tbody></table></div>
+  </section>
+  <section id="tab-audit" class="card hidden">
+    <h2>Auditoría reciente</h2>
+    <div class="wrap"><table class="table"><thead><tr><th>Hora</th><th>Método</th><th>Ruta</th><th>Estado</th></tr></thead><tbody id="events"></tbody></table></div>
+  </section>
+</div>
+</main>
+<script src="/panel/app.js"></script>
+</body>
+</html>
