@@ -36,8 +36,51 @@ async function loadOverview() {
     tr.append(el("td", fmt(s.avg_duration_ms) + " ms"));
     const td = el("td"), b = el("button", "Comprobar");
     b.addEventListener("click", () => runCheck(p.id, b));
-    td.append(b); tr.append(td); body.append(tr);
+    const h = el("button", "Historial"); h.addEventListener("click", () => toggleHistory(p.id, tr, h));
+    td.append(b, " ", h); tr.append(td); body.append(tr);
   }
+}
+
+async function toggleHistory(id, row, button) {
+  const next = row.nextElementSibling;
+  if (next && next.classList.contains("detail")) { next.remove(); return; }
+  button.disabled = true;
+  try {
+    const items = (await api("/v1/proxies/" + id + "/checks")).slice(0, 8);
+    const tr = el("tr", undefined, "detail"), td = el("td"); td.colSpan = 6;
+    if (!items.length) td.textContent = "Sin comprobaciones todavía.";
+    for (const c of items) {
+      const line = new Date(c.created_at * 1000).toLocaleTimeString() + " · " + c.state + " · " + (c.success ? "OK" : "fallo") + " · " + (c.status_code || "–") + " · " + fmt(c.duration_ms) + " ms" + (c.error ? " · " + c.error.type : "");
+      td.append(el("div", line, c.success ? "ok" : "bad"));
+    }
+    tr.append(td); row.after(tr);
+  } catch (e) { say(e.message, "bad"); } finally { button.disabled = false; }
+}
+
+async function addProxy() {
+  const payload = { provider: $("p-provider").value.trim(), host: $("p-host").value.trim(), port: parseInt($("p-port").value, 10), country: $("p-country").value.trim().toUpperCase(), kind: $("p-kind").value };
+  if ($("p-user").value) payload.username = $("p-user").value;
+  if ($("p-pass").value) payload.password = $("p-pass").value;
+  try { await api("/v1/proxies", { method: "POST", body: JSON.stringify(payload) }); say("Proxy guardado (credenciales cifradas).", "ok"); await loadOverview(); }
+  catch (e) { say(e.status === 403 ? "Esta clave no puede añadir proxies." : e.message, "bad"); }
+  finally { $("p-pass").value = ""; $("p-user").value = ""; }
+}
+
+async function loadExpenses() {
+  const d = await api("/v1/expenses");
+  $("exp-month").textContent = "· " + d.month;
+  $("exp-summary").textContent = "Gastado " + d.spent_usd.toFixed(2) + " de " + d.budget_usd.toFixed(2) + " USD · " + (d.over_budget ? "presupuesto superado en " + Math.abs(d.remaining_usd).toFixed(2) : "quedan " + d.remaining_usd.toFixed(2)) + " USD";
+  $("exp-summary").className = d.over_budget ? "bad" : "";
+  $("exp-bar").max = d.budget_usd || 1; $("exp-bar").value = Math.min(d.spent_usd, d.budget_usd || 1);
+  const body = $("expenses"); body.replaceChildren();
+  for (const e of d.entries) { const tr = el("tr"); tr.append(el("td", new Date(e.at * 1000).toLocaleDateString()), el("td", e.concept), el("td", e.amount_usd.toFixed(2))); body.append(tr); }
+}
+
+async function addExpense() {
+  try {
+    await api("/v1/expenses", { method: "POST", body: JSON.stringify({ concept: $("e-concept").value, amount_usd: parseFloat($("e-amount").value) }) });
+    $("e-concept").value = ""; $("e-amount").value = ""; await loadExpenses(); say("Gasto anotado.", "ok");
+  } catch (e) { say(e.message, "bad"); }
 }
 
 async function runCheck(id, button) {
@@ -84,10 +127,11 @@ async function loadAudit() {
   }
 }
 
-const loaders = { overview: loadOverview, bench: loadRuns, audit: loadAudit };
+const loaders = { overview: loadOverview, bench: loadRuns, expenses: loadExpenses, audit: loadAudit };
 async function show(tab) {
   for (const b of document.querySelectorAll("#tabs button")) b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
   for (const t of Object.keys(loaders)) $("tab-" + t).classList.toggle("hidden", t !== tab);
+  $("tab-add").classList.toggle("hidden", tab !== "overview");
   say("");
   try { await loaders[tab](); } catch (e) { say(e.status === 403 ? "Esta clave no tiene permiso para esta sección." : e.message, "bad"); }
 }
@@ -104,6 +148,8 @@ $("key").addEventListener("keydown", (e) => { if (e.key === "Enter") enter(); })
 $("logout").addEventListener("click", () => { key = ""; try { sessionStorage.removeItem("pm_key"); } catch (e) { /* nada */ } setLogged(false); say(""); });
 $("refresh").addEventListener("click", () => show("overview"));
 $("b-start").addEventListener("click", startBench);
+$("p-add").addEventListener("click", addProxy);
+$("e-add").addEventListener("click", addExpense);
 for (const b of document.querySelectorAll("#tabs button")) b.addEventListener("click", () => show(b.dataset.tab));
 if (key) { api("/v1/system").then(() => { setLogged(true); return show("overview"); }).catch(() => { key = ""; }); }
 setInterval(() => { if (key && !document.hidden && !$("tab-bench").classList.contains("hidden")) loadRuns().catch(() => {}); }, 5000);

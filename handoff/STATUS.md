@@ -108,3 +108,7 @@ La selección de proxy ya no es solo "mejor tasa": compiten los sanos a menos de
 ## Avance: ficheros de despliegue (fase 6, sin desplegar)
 
 `Dockerfile` reforzado (healthcheck, un worker), `.dockerignore` (excluye `.env`, bases, `data.txt`), `docker-compose.yml` (API interna de solo lectura + Caddy con HTTPS automático), `Caddyfile`, `deploy.env.example` y `docs/deploy.md`. Verificado: healthcheck real contra uvicorn, `PROXYMANAGER_STRICT=1` rechaza configuración vacía y `docker compose config` valida el compose con un `.env` temporal. **No verificado:** `docker build` ni la ejecución del compose (sin demonio de Docker), ni Caddy/Let's Encrypt; no hay servidor ni dominio. Sin gasto ni recursos creados.
+
+## Avance: panel ampliado y prompt de servidor temporal
+
+Panel: alta de proxies (credenciales cifradas; el campo de contraseña se limpia tras guardar), historial de comprobaciones por proxy y pestaña de gastos (`GET/POST /v1/expenses`, alcances `expenses:read/write`; gastos anotados a mano frente a `PROXYMANAGER_MONTHLY_BUDGET_USD`, mes UTC, sin consultar facturación real). Verificado en Chromium (escritorio y móvil); se corrigió una regla CSS que ocultaba la columna "Concepto" en móvil. `pytest -q` → **53 passed**. `handoff/PROMPT-TEMP-SERVER.md`: prompt completo para una sesión local que cree un servidor Spot de ~2 h (tope 5 USD, confirmación previa, dominio temporal sslip.io, destrucción verificada). No se ha ejecutado.

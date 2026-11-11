@@ -15,5 +15,8 @@
    `docker compose run --rm -v /ruta/privada/data.txt:/tmp/data.txt:ro api python -m proxymanager.importer /tmp/data.txt --provider NOMBRE`
 5. Abrir `https://TU_DOMINIO/panel`, comprobar proxies, y solo después autorizar pruebas externas.
 
+## Dominio gratuito y temporal (para pruebas de horas)
+No hace falta comprar ni registrar nada: con la IP pública del servidor, `A-B-C-D.sslip.io` resuelve a esa IP sin cuenta (por ejemplo `203.0.113.5` → `203-0-113-5.sslip.io`). Usa ese nombre como `PM_DOMAIN`; Caddy obtendrá el certificado de Let's Encrypt si 80/443 están abiertos. Es un servicio de terceros y compartido (límites de Let's Encrypt incluidos): válido para una prueba breve, no para producción. Alternativa sin dominio ni puertos públicos: túnel SSH al puerto 8000 del servidor. Para uso continuado, usa un dominio propio.
+
 ## Antes de exponerlo
 Siguen pendientes revisión de seguridad, copias de seguridad del volumen `/data` **y de la clave Fernet por separado** (sin la clave, las credenciales cifradas son irrecuperables), alertas y monitorización. Un solo proceso significa sin alta disponibilidad: un reinicio corta las ejecuciones en curso (los benchmarks quedan `failed: interrupted`).

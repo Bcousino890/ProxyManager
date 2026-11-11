@@ -4,7 +4,7 @@ import os
 from cryptography.fernet import Fernet
 
 
-SCOPES = ("bench:read", "bench:write", "system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "audit:read")
+SCOPES = ("expenses:read", "expenses:write", "bench:read", "bench:write", "system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "audit:read")
 
 
 @dataclass(frozen=True)

@@ -19,12 +19,42 @@
   <nav id="tabs">
     <button data-tab="overview" aria-pressed="true">Proxies</button>
     <button data-tab="bench" aria-pressed="false">Benchmarks</button>
+    <button data-tab="expenses" aria-pressed="false">Gastos</button>
     <button data-tab="audit" aria-pressed="false">Auditoría</button>
   </nav>
   <section id="tab-overview" class="card">
     <h2>Proxies <span id="summary" class="muted"></span></h2>
     <div class="row"><div><label for="checkurl">URL de comprobación (host permitido)</label><input id="checkurl" placeholder="https://…"></div><button id="refresh">Actualizar</button></div>
     <div class="wrap"><table class="table"><thead><tr><th>Proxy</th><th>País</th><th>Estado</th><th>Éxito</th><th>Latencia</th><th></th></tr></thead><tbody id="proxies"></tbody></table></div>
+  </section>
+  <section id="tab-add" class="card">
+    <details>
+      <summary>Añadir proxy</summary>
+      <div class="row">
+        <div><label for="p-provider">Proveedor</label><input id="p-provider"></div>
+        <div><label for="p-host">Host</label><input id="p-host" placeholder="isp.ejemplo.com"></div>
+        <div><label for="p-port">Puerto</label><input id="p-port" type="number" min="1" max="65535"></div>
+        <div><label for="p-country">País (ISO, o ZZ)</label><input id="p-country" maxlength="2" value="ZZ"></div>
+        <div><label for="p-kind">Tipo</label><select id="p-kind"><option>unknown</option><option>isp</option><option>residential</option><option>datacenter</option></select></div>
+      </div>
+      <div class="row">
+        <div><label for="p-user">Usuario</label><input id="p-user" autocomplete="off"></div>
+        <div><label for="p-pass">Contraseña (se cifra; no se vuelve a mostrar)</label><input id="p-pass" type="password" autocomplete="new-password"></div>
+        <button id="p-add" class="primary">Guardar proxy</button>
+      </div>
+    </details>
+  </section>
+  <section id="tab-expenses" class="card hidden">
+    <h2>Gastos del mes <span id="exp-month" class="muted"></span></h2>
+    <p id="exp-summary"></p>
+    <progress id="exp-bar" max="100" value="0"></progress>
+    <div class="row">
+      <div><label for="e-concept">Concepto</label><input id="e-concept" maxlength="80" placeholder="p. ej. EC2 Spot 2 h"></div>
+      <div><label for="e-amount">Importe (USD)</label><input id="e-amount" type="number" min="0.01" step="0.01"></div>
+      <button id="e-add" class="primary">Anotar</button>
+    </div>
+    <p class="muted">Lo anotas tú; no se consulta ningún proveedor de facturación.</p>
+    <div class="wrap"><table class="table"><thead><tr><th>Fecha</th><th>Concepto</th><th>USD</th></tr></thead><tbody id="expenses"></tbody></table></div>
   </section>
   <section id="tab-bench" class="card hidden">
     <h2>Benchmarks</h2>

@@ -19,6 +19,7 @@ from .proxies import ProxyStore
 from .selection import NoHealthyProxy, ProxyBusy, ProxyMetrics
 from .transport import PinnedProxyTransport
 from .bench import BenchConflict, BenchRunner, BenchStore
+from .expenses import ExpenseStore
 from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
 
@@ -42,6 +43,11 @@ class BenchCreate(BaseModel):
     country: str | None = None
 
 
+class ExpenseCreate(BaseModel):
+    concept: str
+    amount_usd: float
+
+
 class ScrapeRequest(BaseModel):
     url: str
     country: str | None = None
@@ -58,6 +64,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     audit = AuditLog(settings.db_path)
     metrics = ProxyMetrics(settings.db_path, settings.proxy_window_seconds, settings.proxy_min_success_rate, settings.proxy_max_inflight)
     bench = BenchStore(settings.db_path)
+    expenses = ExpenseStore(settings.db_path)
     health_checks = ProxyHealth(proxies, settings, transport, metrics)
     bench_runner = BenchRunner(bench, metrics, health_checks, settings, transport)
 
@@ -204,6 +211,17 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.get("/v1/benchmarks")
     def list_benchmarks(owner: str = Depends(require("bench:read"))):
         return bench.recent(owner)
+
+    @app.get("/v1/expenses")
+    def list_expenses(_: str = Depends(require("expenses:read"))):
+        return expenses.month(settings.monthly_budget_usd)
+
+    @app.post("/v1/expenses", status_code=201)
+    def add_expense(request: ExpenseCreate, _: str = Depends(require("expenses:write"))):
+        try:
+            return expenses.add(request.concept, request.amount_usd)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/v1/overview")
     def overview(_: str = Depends(require("proxies:read"))):
