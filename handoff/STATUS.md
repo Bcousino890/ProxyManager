@@ -48,3 +48,5 @@ Concurrencia y capacidad de cola configurables por entorno. Al arrancar un únic
 El propietario confirmó que dispone de VPS, pero no de acceso DataDome. Se han solicitado los datos no secretos del VPS. No se ha realizado despliegue.
 
 El propietario eligió AWS por horas para las pruebas y pospuso la elección del servidor mensual. Plan y condiciones en `docs/research/2026-11-11-aws-test-plan.md`. No se ha comprado ni creado ningún recurso AWS.
+
+Comparación de pruebas AWS temporales: Lightsail 4 GB resulta más simple y probablemente más barato que EC2 t3a.medium para el mismo tamaño; desglose y fuentes en `docs/research/2026-11-11-aws-ec2-vs-lightsail.md`. No se creó instancia.
