@@ -1,0 +1,37 @@
+# Despliegue de ProxyManager detrás de Caddy (HTTPS automático con Let's Encrypt).
+# Requisitos: un dominio con registro A/AAAA hacia este servidor y los puertos 80/443 abiertos.
+# Uso:  cp deploy.env.example .env   # rellena claves; el archivo .env NO se sube a git
+#       docker compose up -d --build
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PROXYMANAGER_STRICT: "1"          # se niega a arrancar con configuración insegura
+    volumes:
+      - pm-data:/data
+    expose:
+      - "8000"                          # solo accesible desde Caddy, no publicado al exterior
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PM_DOMAIN: ${PM_DOMAIN:?define PM_DOMAIN en .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  pm-data:
+  caddy-data:
+  caddy-config:
