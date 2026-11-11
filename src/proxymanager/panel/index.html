@@ -32,6 +32,7 @@
   </section>
   <section id="tab-overview" class="card">
     <h2>Proxies <span id="summary" class="muted"></span></h2>
+    <p id="traffic" class="muted"></p>
     <div class="row"><div><label for="checkurl">URL de comprobación (host permitido)</label><input id="checkurl" placeholder="https://…"></div><button id="refresh">Actualizar</button></div>
     <div class="wrap"><table class="table"><thead><tr><th>Proxy</th><th>País</th><th>Estado</th><th>Éxito</th><th>Latencia</th><th>Acciones</th></tr></thead><tbody id="proxies"></tbody></table></div>
   </section>
@@ -50,6 +51,13 @@
         <div><label for="p-pass">Contraseña (se cifra; no se vuelve a mostrar)</label><input id="p-pass" type="password" autocomplete="new-password"></div>
         <button id="p-add" class="primary">Guardar proxy</button>
       </div>
+      <h3>Importar lote</h3>
+      <div class="row">
+        <div><label for="i-provider">Proveedor</label><input id="i-provider"></div>
+      </div>
+      <label for="i-text">Una conexión por línea: host:puerto:usuario:contraseña (máx. 500). Se valida entero antes de guardar y se borra de la pantalla al terminar.</label>
+      <textarea id="i-text" rows="5" autocomplete="off" spellcheck="false"></textarea>
+      <button id="i-add" class="primary">Importar lote</button>
     </details>
   </section>
   <section id="tab-expenses" class="card hidden">

@@ -26,6 +26,8 @@ function setLogged(on) {
 async function loadOverview() {
   const data = await api("/v1/overview");
   $("summary").textContent = "· sanos: " + data.healthy + " de " + data.total;
+  const gb = data.traffic_month_bytes / 1e9;
+  $("traffic").textContent = "Tráfico del mes (cuerpos de respuesta): " + (gb < 0.01 ? (data.traffic_month_bytes / 1e6).toFixed(2) + " MB" : gb.toFixed(2) + " GB") + (data.estimated_proxy_cost_usd === null ? " · coste estimado: define PROXYMANAGER_PROXY_COST_PER_GB_USD" : " · coste estimado ≈ " + data.estimated_proxy_cost_usd.toFixed(2) + " USD (no incluye cabeceras ni sobrecarga TLS)");
   if (!$("checkurl").value && data.allowed_hosts.length) $("checkurl").placeholder = "https://" + data.allowed_hosts[0] + "/";
   const body = $("proxies"); body.replaceChildren();
   for (const p of data.proxies) {
@@ -64,6 +66,15 @@ async function addProxy() {
   try { await api("/v1/proxies", { method: "POST", body: JSON.stringify(payload) }); say("Proxy guardado (credenciales cifradas).", "ok"); await loadOverview(); }
   catch (e) { say(e.status === 403 ? "Esta clave no puede añadir proxies." : e.message, "bad"); }
   finally { $("p-pass").value = ""; $("p-user").value = ""; }
+}
+
+async function importBatch() {
+  const text = $("i-text").value;
+  try {
+    const r = await api("/v1/proxies/import", { method: "POST", body: JSON.stringify({ provider: $("i-provider").value.trim(), text }) });
+    say("Importadas: " + r.added + " · duplicadas omitidas: " + r.duplicates_skipped + " · total: " + r.total, "ok"); await loadOverview();
+  } catch (e) { say(e.status === 403 ? "Esta clave no puede importar proxies." : e.message, "bad"); }
+  finally { $("i-text").value = ""; }
 }
 
 async function loadExpenses() {
@@ -215,6 +226,7 @@ $("logout").addEventListener("click", () => { key = ""; try { sessionStorage.rem
 $("refresh").addEventListener("click", () => show("overview"));
 $("b-start").addEventListener("click", startBench);
 $("p-add").addEventListener("click", addProxy);
+$("i-add").addEventListener("click", importBatch);
 $("e-add").addEventListener("click", addExpense);
 $("k-create").addEventListener("click", createKey);
 $("k-copy").addEventListener("click", copyKey);

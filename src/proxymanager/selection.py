@@ -26,12 +26,27 @@ class ProxyMetrics:
         self._lock = threading.Lock()  # carga en vuelo: solo este proceso
         with sqlite3.connect(db_path) as db:
             db.execute("CREATE TABLE IF NOT EXISTS proxy_events (id INTEGER PRIMARY KEY AUTOINCREMENT, proxy_id TEXT NOT NULL, at REAL NOT NULL, source TEXT NOT NULL, reachable INTEGER NOT NULL, duration_ms REAL)")
+            if "bytes" not in {r[1] for r in db.execute("PRAGMA table_info(proxy_events)")}:
+                db.execute("ALTER TABLE proxy_events ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0")
             db.execute("CREATE INDEX IF NOT EXISTS proxy_events_by_proxy ON proxy_events (proxy_id, at)")
             db.execute("CREATE TABLE IF NOT EXISTS session_proxy (session_id TEXT PRIMARY KEY, proxy_id TEXT NOT NULL)")
 
-    def record(self, proxy_id: str, source: str, reachable: bool, duration_ms: float | None = None) -> None:
+    def record(self, proxy_id: str, source: str, reachable: bool, duration_ms: float | None = None, traffic_bytes: int = 0) -> None:
         with sqlite3.connect(self.db_path) as db:
-            db.execute("INSERT INTO proxy_events (proxy_id, at, source, reachable, duration_ms) VALUES (?, ?, ?, ?, ?)", (proxy_id, time.time(), source, int(reachable), duration_ms))
+            db.execute("INSERT INTO proxy_events (proxy_id, at, source, reachable, duration_ms, bytes) VALUES (?, ?, ?, ?, ?, ?)", (proxy_id, time.time(), source, int(reachable), duration_ms, max(int(traffic_bytes or 0), 0)))
+
+    def traffic_month(self, now: float | None = None) -> dict[str, int]:
+        """Bytes de cuerpo de respuesta por proxy en el mes UTC actual (no incluye cabeceras ni sobrecarga TLS/CONNECT)."""
+        from datetime import datetime, timezone
+        moment = datetime.fromtimestamp(now or time.time(), timezone.utc)
+        start = moment.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+        with sqlite3.connect(self.db_path) as db:
+            rows = db.execute("SELECT proxy_id, COALESCE(SUM(bytes), 0) FROM proxy_events WHERE at>=? GROUP BY proxy_id", (start,)).fetchall()
+        return {pid: int(total) for pid, total in rows}
+
+    def purge_events(self, keep_days: float = 35.0) -> int:
+        with sqlite3.connect(self.db_path) as db:
+            return db.execute("DELETE FROM proxy_events WHERE at < ?", (time.time() - keep_days * 86400,)).rowcount
 
     def stats(self, proxy_id: str) -> dict:
         with sqlite3.connect(self.db_path) as db:

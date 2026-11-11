@@ -25,6 +25,11 @@ const check = (ok, what) => { if (!ok) failures.push(what); };
     await page.waitForTimeout(150);
     check((await page.inputValue("#p-pass")) === "" && (await page.inputValue("#p-user")) === "", `${name}: credenciales no se limpian tras guardar`);
     check(!(await page.content()).includes("no-debe-quedarse"), `${name}: la contraseña aparece en el DOM`);
+    await page.fill("#i-provider", "lote"); await page.fill("#i-text", `lote${name.length}a.example:8080:usuario:clave-secreta-lote\nlote${name.length}b.example:8081:usuario:clave-secreta-lote`);
+    const imported = page.waitForResponse((r) => r.url().includes("/v1/proxies/import")); await page.click("#i-add"); await imported; await page.waitForTimeout(200);
+    check((await page.inputValue("#i-text")) === "", `${name}: el lote sigue en pantalla tras importar`);
+    check(!(await page.content()).includes("clave-secreta-lote"), `${name}: credenciales del lote en el DOM`);
+    check((await page.textContent("#traffic")).includes("Tráfico del mes"), `${name}: sin resumen de tráfico`);
     await page.click("#proxies tr button:has-text('Historial')"); await page.waitForSelector(".detail");
 
     await page.click("[data-tab=sessions]"); await page.waitForSelector("#sessions tr");

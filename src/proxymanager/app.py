@@ -21,6 +21,7 @@ from .transport import PinnedProxyTransport
 from .bench import BenchConflict, BenchRunner, BenchStore
 from .expenses import ExpenseStore
 from .keys import ApiKeyStore
+from .importer import import_proxy_text
 from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
 from .alerts import AlertService
@@ -43,6 +44,11 @@ class BenchCreate(BaseModel):
     rps: float | None = None
     use_proxy: bool = True
     country: str | None = None
+
+
+class ProxyImport(BaseModel):
+    provider: str
+    text: str
 
 
 class KeyCreate(BaseModel):
@@ -84,6 +90,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         if settings.strict and (found := settings.problems()):
             raise RuntimeError("Configuración insegura: " + "; ".join(found))
         audit.purge(settings.audit_retention_days)
+        metrics.purge_events()
         bench.recover()
         workers = [asyncio.create_task(health_checks.worker()) for _ in range(settings.health_concurrency)] + [asyncio.create_task(bench_runner.worker())]
         try:
@@ -93,7 +100,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
                 task.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
 
-    app = FastAPI(title="ProxyManager", version="0.1.0", lifespan=lifespan)
+    docs = {} if not settings.strict else {"docs_url": None, "redoc_url": None, "openapi_url": None}   # en estricto no se publica el esquema
+    app = FastAPI(title="ProxyManager", version="0.1.0", lifespan=lifespan, **docs)
 
     def throttle(owner: str, request: Request) -> str:
         retry = limiter.check(owner)
@@ -202,6 +210,17 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         except ValueError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    @app.post("/v1/proxies/import", status_code=201)
+    def import_proxies(request: ProxyImport, _: str = Depends(require("proxies:write"))):
+        if len(request.text) > 65_536:
+            raise HTTPException(413, "Lote demasiado grande")
+        try:
+            before = len(proxies.list())
+            added = import_proxy_text(request.text, proxies, request.provider)
+            return {"added": added, "duplicates_skipped": max(len([l for l in request.text.splitlines() if l.strip()]) - added, 0), "total": before + added}
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     @app.post("/v1/proxies/{proxy_id}/checks", status_code=202)
     def check_proxy(proxy_id: str, request: ScrapeRequest, _: str = Depends(require("checks:write"))):
         try:
@@ -267,9 +286,12 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
 
     @app.get("/v1/overview")
     def overview(_: str = Depends(require("proxies:read"))):
-        items = [{**p, "stats": metrics.stats(p["id"])} for p in proxies.list()]
+        traffic = metrics.traffic_month()
+        items = [{**p, "stats": metrics.stats(p["id"]), "traffic_month_bytes": traffic.get(p["id"], 0)} for p in proxies.list()]
         healthy = sum(1 for p in items if p["stats"]["healthy"])
-        return {"proxies": items, "healthy": healthy, "total": len(items), "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd}
+        total_bytes = sum(p["traffic_month_bytes"] for p in items)
+        return {"traffic_month_bytes": total_bytes, "estimated_proxy_cost_usd": round(total_bytes / 1e9 * settings.proxy_cost_per_gb_usd, 4) if settings.proxy_cost_per_gb_usd else None,
+                "proxies": items, "healthy": healthy, "total": len(items), "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd}
 
     @app.get("/v1/benchmarks/{run_id}")
     def get_benchmark(run_id: str, owner: str = Depends(require("bench:read"))):
@@ -325,7 +347,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
                     if proxy_id:
                         metrics.release(proxy_id)
                 if proxy_id:
-                    await alerts.record_proxy(metrics, proxy_id, "scrape", result.get("status_code") is not None, result.get("duration_ms"))
+                    await alerts.record_proxy(metrics, proxy_id, "scrape", result.get("status_code") is not None, result.get("duration_ms"), result.get("bytes_transferred", 0))
                 if proxy_id is None or result.get("status_code") is not None:
                     break  # hubo respuesta HTTP (aunque sea de error del sitio): no se reintenta; solo fallos de transporte
         except DestinationRejected as exc:

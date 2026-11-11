@@ -135,7 +135,7 @@ class BenchRunner:
                 if proxy_id:
                     self.metrics.release(proxy_id)
             if proxy_id:
-                self.metrics.record(proxy_id, "bench", result.get("status_code") is not None, result.get("duration_ms"))
+                self.metrics.record(proxy_id, "bench", result.get("status_code") is not None, result.get("duration_ms"), result.get("bytes_transferred", 0))
             return proxy_id, result
 
         async def loop():

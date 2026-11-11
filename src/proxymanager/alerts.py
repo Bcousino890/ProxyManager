@@ -17,9 +17,9 @@ class AlertService:
             # An unavailable optional webhook must not interrupt checks or expense entry.
             pass
 
-    async def record_proxy(self, metrics, proxy_id: str, source: str, reachable: bool, duration_ms: float | None = None) -> None:
+    async def record_proxy(self, metrics, proxy_id: str, source: str, reachable: bool, duration_ms: float | None = None, traffic_bytes: int = 0) -> None:
         was_healthy = metrics.stats(proxy_id)["healthy"] if self.webhook_url else False
-        metrics.record(proxy_id, source, reachable, duration_ms)
+        metrics.record(proxy_id, source, reachable, duration_ms, traffic_bytes)
         if was_healthy and not metrics.stats(proxy_id)["healthy"]:
             await self._send({"event": "proxy_unhealthy", "proxy_id": proxy_id})
 

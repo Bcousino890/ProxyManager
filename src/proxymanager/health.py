@@ -93,9 +93,9 @@ class ProxyHealth:
             result.pop('html', None)
             if self.metrics:
                 if self.alerts:
-                    await self.alerts.record_proxy(self.metrics, proxy_id, 'check', result.get('status_code') is not None, result.get('duration_ms'))
+                    await self.alerts.record_proxy(self.metrics, proxy_id, 'check', result.get('status_code') is not None, result.get('duration_ms'), result.get('bytes_transferred', 0))
                 else:
-                    self.metrics.record(proxy_id, 'check', result.get('status_code') is not None, result.get('duration_ms'))
+                    self.metrics.record(proxy_id, 'check', result.get('status_code') is not None, result.get('duration_ms'), result.get('bytes_transferred', 0))
             if 'error' in result:
                 result['error'] = {'type': 'transport_error'}
         except Exception:
