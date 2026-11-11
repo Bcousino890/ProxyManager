@@ -17,6 +17,6 @@ Lightsail sigue facturando mientras la instancia existe, aunque esté apagada. P
 2. Elegir región europea y confirmar en el checkout plan, precio/hora, IVA, IPv4, transferencia y extras. Solicitar autorización específica de compra.
 3. Crear una instancia temporal, desplegar versión restringida, ejecutar pruebas funcionales 100/1000/10000 solo en destinos propios o autorizados y medir CPU, RAM, red, errores y coste.
 4. Exportar resultados, revisar facturación y eliminar instancia si hay una pausa larga. Registrar hora de creación y eliminación.
-5. Cuando la plataforma esté lista, comparar Lightsail, Hetzner y Netcup para 30 días continuos con precios vigentes. Elegir entonces el proveedor mensual.
+5. Cuando la plataforma esté lista, verificar el precio final y las condiciones vigentes de Netcup VPS Lite 1 G12.5s (4 GB), actualmente el candidato económico para uso continuo. Comparar de nuevo con las alternativas antes de contratar. Véase `2026-11-11-netcup-lite-vs-aws.md`.
 
 AWS EC2 permite detener el cómputo sin pagar instancia mientras está apagada, pero siguen cobrándose almacenamiento EBS y posiblemente IPv4 y otros recursos; la comparación completa se hará si Lightsail no cubre las pruebas. [Ciclo de vida EC2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-lifecycle.html), [precio IPv4](https://aws.amazon.com/vpc/pricing/).
