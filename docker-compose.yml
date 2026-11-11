@@ -9,6 +9,7 @@ services:
     env_file: .env
     environment:
       PROXYMANAGER_STRICT: "1"          # se niega a arrancar con configuración insegura
+      FORWARDED_ALLOW_IPS: "*"          # seguro aquí: solo Caddy alcanza la API; así el límite de intentos ve la IP real
     volumes:
       - pm-data:/data
     expose:

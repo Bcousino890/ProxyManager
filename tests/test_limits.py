@@ -49,3 +49,21 @@ def test_audit_has_no_secrets_or_urls(tmp_path):
     dump = repr(events) + repr(sqlite3.connect(settings.db_path).execute("SELECT * FROM audit_events").fetchall())
     assert "SECRETQ" not in dump and sid not in dump and "eval-secret" not in dump
     assert any(e["route"] == "/v1/sessions/{session_id}" and e["status"] == 200 for e in events)
+
+
+def test_failed_auth_attempts_are_throttled_per_client_and_valid_keys_still_count_normally(tmp_path):
+    app = create_app(make_settings(tmp_path, auth_failure_limit=3))
+    with TestClient(app) as client:
+        bad = {"X-API-Key": "wrong"}
+        assert [client.get("/v1/system", headers=bad).status_code for _ in range(3)] == [401, 401, 401]
+        blocked = client.get("/v1/system", headers=bad)
+        assert blocked.status_code == 429 and int(blocked.headers["Retry-After"]) >= 1
+        assert client.get("/v1/system", headers={"X-API-Key": "eval-secret"}).status_code == 429   # el cliente bloqueado no puede probar más claves
+        assert client.get("/health").status_code == 200
+
+
+def test_successful_requests_do_not_consume_failure_budget(tmp_path):
+    app = create_app(make_settings(tmp_path, auth_failure_limit=2, rate_limit_requests=0))
+    with TestClient(app) as client:
+        for _ in range(10):
+            assert client.get("/v1/system", headers={"X-API-Key": "eval-secret"}).status_code == 200

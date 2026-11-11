@@ -116,3 +116,12 @@ def test_inflight_is_released_after_each_request(tmp_path, monkeypatch):
         body = {"url": "https://lab.example/", "use_proxy": True}
         assert c.post("/scrape", headers=E, json=body).status_code == 200
         assert c.post("/scrape", headers=E, json=body).status_code == 200   # liberó la concurrencia tras la primera
+
+
+def test_scrape_transport_error_does_not_echo_exception_text(tmp_path, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("8.8.8.8", 443))])
+    def broken(request):
+        raise httpx.ConnectError("proxy http://user:private-password@p.example:8080 refused")
+    with TestClient(create_app(make_settings(tmp_path), transport=httpx.MockTransport(broken))) as c:
+        r = c.post("/scrape", headers=E, json={"url": "https://lab.example/"})
+    assert r.status_code == 200 and "private-password" not in r.text and r.json()["error"]["message"] == "ConnectError"

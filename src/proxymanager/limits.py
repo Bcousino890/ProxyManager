@@ -12,19 +12,33 @@ class RateLimiter:
         self._hits: dict[str, deque] = defaultdict(deque)
         self._lock = threading.Lock()
 
+    def _retry(self, hits, now: float) -> float:
+        while hits and now - hits[0] >= self.window:
+            hits.popleft()
+        return max(self.window - (now - hits[0]), 0.001) if len(hits) >= self.limit else 0.0
+
     def check(self, owner: str) -> float:
-        """Devuelve 0 si se permite; si no, segundos hasta poder reintentar."""
+        """Devuelve 0 si se permite (y cuenta la solicitud); si no, segundos hasta poder reintentar."""
         if self.limit <= 0:
             return 0.0
         now = self.clock()
         with self._lock:
             hits = self._hits[owner]
-            while hits and now - hits[0] >= self.window:
-                hits.popleft()
-            if len(hits) >= self.limit:
-                return max(self.window - (now - hits[0]), 0.001)
-            hits.append(now)
+            retry = self._retry(hits, now)
+            if not retry:
+                hits.append(now)
+            return retry
+
+    def blocked(self, owner: str) -> float:
+        """Como check(), pero sin contar: ¿está bloqueado ahora?"""
+        if self.limit <= 0:
             return 0.0
+        with self._lock:
+            return self._retry(self._hits[owner], self.clock())
+
+    def record(self, owner: str) -> None:
+        with self._lock:
+            self._hits[owner].append(self.clock())
 
 
 class AuditLog:

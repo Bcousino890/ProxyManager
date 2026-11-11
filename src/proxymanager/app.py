@@ -62,6 +62,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     proxies = ProxyStore(settings.db_path, settings.credential_key)
     limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_window_seconds)
     audit = AuditLog(settings.db_path)
+    failures = RateLimiter(settings.auth_failure_limit, settings.rate_limit_window_seconds)  # intentos fallidos por IP
     metrics = ProxyMetrics(settings.db_path, settings.proxy_window_seconds, settings.proxy_min_success_rate, settings.proxy_max_inflight)
     bench = BenchStore(settings.db_path)
     expenses = ExpenseStore(settings.db_path)
@@ -100,8 +101,13 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
 
     def require(scope: str):
         def dependency(request: Request, x_api_key: str | None = Header(default=None)) -> str:
+            client = request.client.host if request.client else "?"
+            wait = failures.blocked(client)
+            if wait:
+                raise HTTPException(status_code=429, detail="Demasiados intentos fallidos", headers={"Retry-After": str(int(wait) + 1)})
             role = role_of(x_api_key)
             if role is None:
+                failures.record(client)
                 raise HTTPException(status_code=401, detail="Clave API inválida")
             if scope not in settings.scopes_for(role):
                 raise HTTPException(status_code=403, detail=f"La clave no tiene el alcance {scope}")
