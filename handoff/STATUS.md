@@ -58,3 +58,7 @@ Se comprobó también la tabla oficial de EC2 Spot en vivo (11 noviembre 2026): 
 ## Avance: cookies de sesión persistentes
 
 Se añadió `CookieStore`: valores `Set-Cookie` cifrados con Fernet en SQLite, asociados a sesión y propietario. `/scrape` con `session_id` envía las cookies compatibles con host, dominio, ruta, HTTPS y caducidad; `Max-Age=0` las elimina y borrar la sesión purga sus cookies. Los atributos `HttpOnly` y `SameSite` se guardan como metadatos. Sin clave de cifrado, el uso de sesión HTTP devuelve 503 para evitar almacenamiento en claro. Pruebas locales con transporte simulado: `python3 -m pytest -q` → **22 passed** (11 noviembre 2026). No se ha probado aún con un servicio externo ni con DataDome real.
+
+## Avance: rate limiting y auditoría
+
+`RateLimiter` (ventana deslizante en memoria por propietario, seguro entre hilos) aplicado a todos los endpoints autenticados: 429 con `Retry-After`. Configurable con `PROXYMANAGER_RATE_LIMIT_REQUESTS` (60; 0 desactiva) y `PROXYMANAGER_RATE_LIMIT_WINDOW_SECONDS` (60). Solo válido con un único proceso API. `AuditLog` guarda en SQLite hora, hash de propietario, método, ruta genérica y estado — sin clave, query, cuerpo ni URL; consulta en `GET /v1/audit` (administración). Prueba: `pytest -q` → **26 passed** (11 noviembre 2026), sin tráfico externo. Nota: el trabajo equivalente de Codex no llegó a GitHub (límite de uso), así que se reimplementó aquí; la API sigue sin revisión de seguridad ni permisos granulares: no exponer a Internet.

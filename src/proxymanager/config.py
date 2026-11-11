@@ -16,9 +16,11 @@ class Settings:
     health_concurrency: int = 2
     health_queue_limit: int = 20
     monthly_budget_usd: float = 25.0
+    rate_limit_requests: int = 60
+    rate_limit_window_seconds: float = 60.0
 
     def __post_init__(self):
-        if min(self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0:
+        if min(self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0 or self.rate_limit_requests < 0 or self.rate_limit_window_seconds <= 0:
             raise ValueError("Los límites deben ser positivos")
 
     @classmethod
@@ -37,4 +39,6 @@ class Settings:
             timeout_seconds=float(os.getenv("PROXYMANAGER_TIMEOUT_SECONDS", "15")),
             max_response_bytes=int(os.getenv("PROXYMANAGER_MAX_RESPONSE_BYTES", "1000000")),
             monthly_budget_usd=float(os.getenv("PROXYMANAGER_MONTHLY_BUDGET_USD", "25")),
+            rate_limit_requests=int(os.getenv("PROXYMANAGER_RATE_LIMIT_REQUESTS", "60")),
+            rate_limit_window_seconds=float(os.getenv("PROXYMANAGER_RATE_LIMIT_WINDOW_SECONDS", "60")),
         )

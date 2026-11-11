@@ -4,7 +4,7 @@ from typing import Literal
 import uuid
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from .config import Settings
@@ -12,6 +12,7 @@ from .fetch import DestinationRejected, fetch, guard_url
 from .storage import SessionStore
 from .cookies import CookieStore
 from .proxies import ProxyStore
+from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
 
 
@@ -36,6 +37,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     store = SessionStore(settings.db_path)
     cookies = CookieStore(settings.db_path, settings.credential_key, store, settings.allowed_hosts)
     proxies = ProxyStore(settings.db_path, settings.credential_key)
+    limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_window_seconds)
+    audit = AuditLog(settings.db_path)
     health_checks = ProxyHealth(proxies, settings, transport)
     @asynccontextmanager
     async def lifespan(app):
@@ -44,15 +47,33 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
 
     app = FastAPI(title="ProxyManager", version="0.1.0", lifespan=lifespan)
 
-    def authenticated(x_api_key: str | None = Header(default=None)) -> str:
+    def throttle(owner: str, request: Request) -> str:
+        retry = limiter.check(owner)
+        if retry:
+            raise HTTPException(status_code=429, detail="Límite de solicitudes excedido", headers={"Retry-After": str(int(retry) + 1)})
+        request.state.owner = owner
+        return owner
+
+    def authenticated(request: Request, x_api_key: str | None = Header(default=None)) -> str:
         if not x_api_key or not any(key and secrets.compare_digest(x_api_key, key) for key in (settings.evaluator_key, settings.admin_key)):
             raise HTTPException(status_code=401, detail="Clave API inválida")
-        return store.owner_id(x_api_key)
+        return throttle(store.owner_id(x_api_key), request)
 
-    def administrator(x_api_key: str | None = Header(default=None)) -> str:
+    def administrator(request: Request, x_api_key: str | None = Header(default=None)) -> str:
         if not x_api_key or not settings.admin_key or not secrets.compare_digest(x_api_key, settings.admin_key):
             raise HTTPException(status_code=403, detail="Se requiere clave de administración")
-        return store.owner_id(x_api_key)
+        return throttle(store.owner_id(x_api_key), request)
+
+    @app.middleware("http")
+    async def audit_requests(request: Request, call_next):
+        status = 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            route = request.scope.get("route")
+            audit.record(getattr(request.state, "owner", None), request.method, getattr(route, "path", "(sin ruta)"), status)
 
     @app.get("/health")
     def health():
@@ -69,6 +90,10 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.post("/v1/sessions", status_code=201)
     def create_session(owner: str = Depends(authenticated)):
         return store.create(owner, settings.session_ttl_seconds)
+
+    @app.get("/v1/audit")
+    def audit_events(limit: int = 100, _: str = Depends(administrator)):
+        return audit.recent(limit)
 
     @app.get("/v1/sessions/{session_id}")
     def get_session(session_id: str, owner: str = Depends(authenticated)):
