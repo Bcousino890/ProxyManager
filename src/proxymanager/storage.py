@@ -1,4 +1,5 @@
 import hashlib
+import os
 import secrets
 import sqlite3
 import time
@@ -9,6 +10,8 @@ class SessionStore:
         self.db_path = db_path
         with self._connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, owner TEXT NOT NULL, created_at REAL NOT NULL, expires_at REAL NOT NULL)")
+        if self.db_path != ":memory:":
+            os.chmod(self.db_path, 0o600)
 
     def _connect(self):
         return sqlite3.connect(self.db_path)

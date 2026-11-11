@@ -41,4 +41,4 @@ Pendiente: uso efectivo y comprobación de conexiones proxy, cookies persistente
 .venv/bin/pytest -q
 ```
 
-Las pruebas comprueban autenticación, aislamiento de sesiones, autorización de destinos, clasificación de HTTP 200 y conexión a IP fijada. Consulta el [diseño](docs/superpowers/specs/2026-11-11-proxymanager-initial-design.md) y el [plan inicial](docs/superpowers/plans/2026-11-11-initial-api.md).
+Las pruebas comprueban autenticación, aislamiento de sesiones, autorización de destinos, clasificación de HTTP 200 y conexión a IP fijada. Consulta el [diseño](docs/superpowers/specs/2026-11-11-proxymanager-initial-design.md), el [plan inicial](docs/superpowers/plans/2026-11-11-initial-api.md), la [hoja de ruta de ocho fases](docs/roadmap.md) y el [informe de conectividad](docs/reports/2026-11-11-proxy-connectivity.md). Las diez conexiones de prueba están importadas solo en la base de datos local con credenciales cifradas; no se subieron credenciales a GitHub.

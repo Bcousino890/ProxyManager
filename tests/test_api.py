@@ -113,3 +113,17 @@ def test_credentials_require_encryption_key(tmp_path):
     with TestClient(app) as client:
         result = client.post("/v1/proxies", headers={"X-API-Key": "admin-secret"}, json={"provider": "test", "host": "proxy.example", "port": 8080, "kind": "isp", "country": "ES", "username": "u", "password": "p"})
     assert result.status_code == 503
+
+
+def test_proxy_network_classification_can_remain_unknown(tmp_path):
+    app = create_app(make_settings(tmp_path))
+    with TestClient(app) as client:
+        result = client.post("/v1/proxies", headers={"X-API-Key": "admin-secret"}, json={"provider": "test-batch", "host": "proxy.example", "port": 8080, "kind": "unknown", "country": "ZZ"})
+    assert result.status_code == 201
+    assert result.json()["kind"] == "unknown"
+
+
+def test_database_file_is_private(tmp_path):
+    settings = make_settings(tmp_path)
+    create_app(settings)
+    assert (tmp_path / "test.db").stat().st_mode & 0o777 == 0o600

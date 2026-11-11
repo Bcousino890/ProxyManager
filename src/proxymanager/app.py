@@ -16,7 +16,7 @@ class ProxyCreate(BaseModel):
     provider: str
     host: str
     port: int
-    kind: Literal["isp", "residential", "datacenter"]
+    kind: Literal["isp", "residential", "datacenter", "unknown"]
     country: str
     username: str | None = None
     password: str | None = None
