@@ -3,13 +3,14 @@ from typing import Literal
 import uuid
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from .config import Settings
-from .fetch import DestinationRejected, fetch
+from .fetch import DestinationRejected, fetch, guard_url
 from .storage import SessionStore
 from .proxies import ProxyStore
+from .health import ProxyHealth
 
 
 class ProxyCreate(BaseModel):
@@ -32,6 +33,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     settings = settings or Settings.from_env()
     store = SessionStore(settings.db_path)
     proxies = ProxyStore(settings.db_path, settings.credential_key)
+    health_checks = ProxyHealth(proxies, settings, transport)
     app = FastAPI(title="ProxyManager", version="0.1.0")
 
     def authenticated(x_api_key: str | None = Header(default=None)) -> str:
@@ -84,6 +86,23 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             return proxies.create(request.provider, request.host, request.port, request.kind, request.country, request.username, request.password)
         except ValueError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/v1/proxies/{proxy_id}/checks", status_code=202)
+    def check_proxy(proxy_id: str, request: ScrapeRequest, background: BackgroundTasks, _: str = Depends(administrator)):
+        try:
+            guard_url(request.url, settings)
+            connection = health_checks.connection(proxy_id)
+            job_id = health_checks.queue(proxy_id)
+        except LookupError as exc:
+            raise HTTPException(404, "Proxy no encontrado") from exc
+        except ValueError as exc:
+            raise HTTPException(422, "Destino, configuración o capacidad de cola inválidos") from exc
+        background.add_task(health_checks.run, job_id, request.url, connection)
+        return {"job_id": job_id, "state": "queued"}
+
+    @app.get("/v1/proxies/{proxy_id}/checks")
+    def proxy_check_history(proxy_id: str, _: str = Depends(authenticated)):
+        return health_checks.history(proxy_id)
 
     @app.post("/scrape")
     async def scrape(request: ScrapeRequest, owner: str = Depends(authenticated)):
