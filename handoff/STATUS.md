@@ -46,3 +46,5 @@ La biblioteca httpcore usaba la IP fijada como nombre TLS dentro del túnel CONN
 Concurrencia y capacidad de cola configurables por entorno. Al arrancar un único proceso API, los trabajos pendientes anteriores se marcan `interrupted`; no se reenvían automáticamente. El historial conserva destino sin query para evitar persistir secretos de URL. Despliegue actual requiere un solo worker; múltiples procesos necesitan coordinación adicional.
 
 El propietario confirmó que dispone de VPS, pero no de acceso DataDome. Se han solicitado los datos no secretos del VPS. No se ha realizado despliegue.
+
+El propietario eligió AWS por horas para las pruebas y pospuso la elección del servidor mensual. Plan y condiciones en `docs/research/2026-11-11-aws-test-plan.md`. No se ha comprado ni creado ningún recurso AWS.

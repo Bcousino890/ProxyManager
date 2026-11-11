@@ -9,3 +9,5 @@
 | 2026-11-11 | Presupuesto indicativo de 25 USD; no controlador de gastos aún | Cifra inicial del encargo | Presupuesto aprobado y costes finales |
 
 No conviertas hipótesis en hechos. La documentación del proveedor no sustituye mediciones propias.
+
+| 2026-11-11 | AWS por horas para pruebas; proveedor mensual se decide al final | Instrucción del propietario; evita compromiso temprano | Mediciones y precio final de 30 días |
