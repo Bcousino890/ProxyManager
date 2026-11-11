@@ -128,3 +128,7 @@ Revisión con axe-core 4.10.2 (Playwright, CSP desactivada solo en el navegador 
 ## Codex finish: CI (11 noviembre 2026)
 
 Se añadió `.github/workflows/ci.yml` para ejecutar `pytest -q` con Python 3.12 en push y pull request. Verificación local previa al commit: `.venv/bin/pytest -q` → 56 passed, 1 skipped, 1 warning. La ejecución en GitHub Actions queda pendiente hasta el push; no se atribuye aquí un resultado de CI todavía.
+
+## Codex finish: sesiones en panel (11 noviembre 2026)
+
+`GET /v1/sessions` devuelve solo sesiones activas del propietario autenticado y requiere alcance `sessions`; la pestaña «Sesiones» permite crear, listar y borrar la propia sesión y sus cookies. El panel conserva CSP estricta y construye contenido dinámico con `textContent`. Evidencia local: `NPM_CONFIG_PREFIX=/tmp/pm-npm .venv/bin/pytest -q` → 58 passed, 1 warning; `NPM_CONFIG_PREFIX=/tmp/pm-npm AXE=1 .venv/bin/pytest -q tests/test_panel_e2e.py` → 1 passed, 1 warning. Esta ejecución de axe incluye la pestaña de sesiones en claro y oscuro y reportó cero violaciones WCAG automáticas. Playwright y axe se instalaron fuera del repositorio en `/tmp/pm-npm`; CI normal no requiere Node.

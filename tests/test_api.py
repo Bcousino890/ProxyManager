@@ -29,6 +29,20 @@ def test_session_isolation(tmp_path):
         assert client.get(f"/v1/sessions/{sid}", headers={"X-API-Key": "second"}).status_code == 404
 
 
+def test_list_sessions_is_scoped_to_owner_and_excludes_expired(tmp_path):
+    app = create_app(make_settings(tmp_path, evaluator_key="first", admin_key="second"))
+    with TestClient(app) as client:
+        first = {"X-API-Key": "first"}
+        second = {"X-API-Key": "second"}
+        sid = client.post("/v1/sessions", headers=first).json()["session_id"]
+        other = client.post("/v1/sessions", headers=second).json()["session_id"]
+        assert [item["session_id"] for item in client.get("/v1/sessions", headers=first).json()] == [sid]
+        assert [item["session_id"] for item in client.get("/v1/sessions", headers=second).json()] == [other]
+        assert client.delete(f"/v1/sessions/{sid}", headers=first).status_code == 204
+        assert client.get("/v1/sessions", headers=first).json() == []
+        assert client.get("/v1/sessions").status_code == 401
+
+
 def test_scrape_classification_and_destination_guard(tmp_path, monkeypatch):
     import socket
     monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, type: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))])

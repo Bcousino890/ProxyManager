@@ -27,6 +27,15 @@ const check = (ok, what) => { if (!ok) failures.push(what); };
     check(!(await page.content()).includes("no-debe-quedarse"), `${name}: la contraseña aparece en el DOM`);
     await page.click("#proxies tr button:has-text('Historial')"); await page.waitForSelector(".detail");
 
+    await page.click("[data-tab=sessions]"); await page.waitForSelector("#sessions tr");
+    await page.click("#s-create"); await page.waitForSelector("#sessions tr button");
+    const sessionId = await page.textContent("#sessions tr td:first-child");
+    check(sessionId.startsWith("ses_"), `${name}: sesión no listada`);
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.click("#sessions tr button");
+    await page.waitForFunction(() => document.querySelector("#sessions").textContent.includes("No tienes sesiones activas."));
+    check(!(await page.textContent("#sessions")).includes(sessionId), `${name}: sesión no se borró del panel`);
+
     await page.click("[data-tab=expenses]"); await page.waitForSelector("#exp-summary:not(:empty)");
     await page.fill("#e-concept", `concepto-${name.length}`); await page.fill("#e-amount", "1.5"); await page.click("#e-add");
     await page.waitForSelector("#expenses tr");
@@ -41,6 +50,19 @@ const check = (ok, what) => { if (!ok) failures.push(what); };
   await limited.goto(BASE + "/panel"); await limited.fill("#key", EVAL); await limited.click("#enter"); await limited.waitForSelector("#tab-add");
   await limited.click("[data-tab=audit]"); await limited.waitForTimeout(400);
   check((await limited.textContent("#msg")).includes("permiso"), "clave de evaluación debería ver aviso de permiso en Auditoría");
+
+  if (process.env.AXE === "1") {
+    const AxeBuilder = require("@axe-core/playwright").default;
+    for (const scheme of ["light", "dark"]) {
+      const context = await browser.newContext({ colorScheme: scheme, bypassCSP: true }); // solo para inyectar axe en el test
+      const page = await context.newPage(); await page.goto(BASE + "/panel");
+      await page.fill("#key", ADMIN); await page.click("#enter"); await page.waitForSelector("#tab-add");
+      await page.click("[data-tab=sessions]"); await page.waitForSelector("#sessions tr");
+      const report = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+      check(report.violations.length === 0, `${scheme}: axe: ${report.violations.map((v) => v.id).join(", ")}`);
+      await context.close();
+    }
+  }
   await browser.close();
 
   if (failures.length) { console.log(failures.join("\n")); process.exit(1); }

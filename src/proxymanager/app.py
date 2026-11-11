@@ -157,6 +157,10 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     def create_session(owner: str = Depends(require("sessions"))):
         return store.create(owner, settings.session_ttl_seconds)
 
+    @app.get("/v1/sessions")
+    def list_sessions(owner: str = Depends(require("sessions"))):
+        return store.list_active(owner)
+
     @app.get("/v1/audit")
     def audit_events(limit: int = 100, _: str = Depends(require("audit:read"))):
         return audit.recent(limit)

@@ -1,6 +1,6 @@
 # Siguiente entrega
 
-Codex finish: CI configurada localmente; continuar con la lista de sesiones y su pestaña del panel, después alertas, backup, laboratorio y documentación según `handoff/CODEX-FINISH.md`. El stash `codex/api-guardrails` sigue intacto y no se aplicará por solapamiento con esta rama.
+Codex finish: CI y lista/pestaña de sesiones implementadas; continuar con alertas webhook opcionales, backup, laboratorio y documentación según `handoff/CODEX-FINISH.md`. El stash `codex/api-guardrails` sigue intacto y no se aplicará por solapamiento con esta rama.
 
 TLS por proxy resuelto y verificado con diez conexiones; ver STATUS.md y el informe JSON. Cookies persistentes cifradas integradas en `/scrape` con pruebas locales. Rate limiting y auditoría hechos (ver STATUS.md). Validación de configuración (PROXYMANAGER_STRICT) y purga de auditoría hechas. Permisos por alcance y límites de cookies hechos. Fase 2 casi cerrada: falta revisión de seguridad y prueba funcional autorizada fuera del simulador antes de exponer el servicio. Hacer una prueba funcional autorizada fuera del entorno simulado.
 
