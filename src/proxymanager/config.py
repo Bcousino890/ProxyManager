@@ -20,6 +20,9 @@ class Settings:
     max_response_bytes: int = 1_000_000
     health_concurrency: int = 2
     health_queue_limit: int = 20
+    health_max_attempts: int = 3
+    health_lease_seconds: float = 120.0
+    health_poll_seconds: float = 0.2
     monthly_budget_usd: float = 25.0
     rate_limit_requests: int = 60
     audit_retention_days: float = 30.0
@@ -28,7 +31,7 @@ class Settings:
     rate_limit_window_seconds: float = 60.0
 
     def __post_init__(self):
-        if min(self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0 or self.audit_retention_days <= 0 or self.rate_limit_requests < 0 or self.rate_limit_window_seconds <= 0:
+        if min(self.health_max_attempts, self.health_lease_seconds + 1, self.health_poll_seconds, self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0 or self.audit_retention_days <= 0 or self.rate_limit_requests < 0 or self.rate_limit_window_seconds <= 0:
             raise ValueError("Los límites deben ser positivos")
 
     def scopes_for(self, role: str) -> frozenset[str]:
@@ -59,6 +62,9 @@ class Settings:
         hosts = tuple(host.strip().lower() for host in os.getenv("PROXYMANAGER_ALLOWED_HOSTS", "").split(",") if host.strip())
         return cls(
             health_concurrency=int(os.getenv("PROXYMANAGER_HEALTH_CONCURRENCY", "2")),
+            health_max_attempts=int(os.getenv("PROXYMANAGER_HEALTH_MAX_ATTEMPTS", "3")),
+            health_lease_seconds=float(os.getenv("PROXYMANAGER_HEALTH_LEASE_SECONDS", "120")),
+            health_poll_seconds=float(os.getenv("PROXYMANAGER_HEALTH_POLL_SECONDS", "0.2")),
             health_queue_limit=int(os.getenv("PROXYMANAGER_HEALTH_QUEUE_LIMIT", "20")),
             db_path=os.getenv("PROXYMANAGER_DB_PATH", "proxymanager.db"),
             evaluator_key=os.getenv("PROXYMANAGER_EVALUATOR_KEY", ""),

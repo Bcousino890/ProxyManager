@@ -1,10 +1,11 @@
+import asyncio
 from contextlib import asynccontextmanager
 import secrets
 from typing import Literal
 import uuid
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from .config import Settings
@@ -45,8 +46,13 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         if settings.strict and (found := settings.problems()):
             raise RuntimeError("Configuración insegura: " + "; ".join(found))
         audit.purge(settings.audit_retention_days)
-        health_checks.recover()
-        yield
+        workers = [asyncio.create_task(health_checks.worker()) for _ in range(settings.health_concurrency)]
+        try:
+            yield
+        finally:
+            for task in workers:
+                task.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
 
     app = FastAPI(title="ProxyManager", version="0.1.0", lifespan=lifespan)
 
@@ -131,7 +137,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/v1/proxies/{proxy_id}/checks", status_code=202)
-    def check_proxy(proxy_id: str, request: ScrapeRequest, background: BackgroundTasks, _: str = Depends(require("checks:write"))):
+    def check_proxy(proxy_id: str, request: ScrapeRequest, _: str = Depends(require("checks:write"))):
         try:
             guard_url(request.url, settings)
             connection = health_checks.connection(proxy_id)
@@ -142,7 +148,6 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             raise HTTPException(404, "Proxy no encontrado") from exc
         except ValueError as exc:
             raise HTTPException(422, "Destino, configuración o capacidad de cola inválidos") from exc
-        background.add_task(health_checks.run, job_id, request.url, connection)
         return {"job_id": job_id, "state": "queued"}
 
     @app.get("/v1/proxies/{proxy_id}/checks")
