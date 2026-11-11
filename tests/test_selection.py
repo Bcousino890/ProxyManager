@@ -67,3 +67,52 @@ def test_scrape_via_proxy_requires_healthy_proxy_then_records_metrics(tmp_path, 
         stats = c.get(f"/v1/proxies/{pid}/stats", headers=E).json()
         assert stats["events"] == 2 and stats["healthy"] is True
         assert c.post("/scrape", headers=E, json={"url": "https://lab.example/"}).json()["proxy_id"] is None
+
+
+def _store(tmp_path, n=3, **kw):
+    from proxymanager.proxies import ProxyStore
+    db = str(tmp_path / "r.db")
+    store = ProxyStore(db)
+    ids = [store.create("l", f"h{i}.example", 1, "unknown", "ES", None, None)["id"] for i in range(n)]
+    return ProxyMetrics(db, **kw), ids
+
+
+def test_prefers_lower_latency_among_equally_reliable(tmp_path):
+    m, (a, b, c) = _store(tmp_path)
+    for pid, ms in ((a, 300), (b, 80), (c, 150)):
+        m.record(pid, "check", True, ms)
+    assert m.choose() == b
+
+
+def test_spreads_load_and_respects_inflight_limit(tmp_path):
+    m, (a, b, c) = _store(tmp_path, max_inflight=1)
+    for pid, ms in ((a, 100), (b, 200), (c, 300)):
+        m.record(pid, "check", True, ms)
+    picked = [m.choose(acquire=True) for _ in range(3)]
+    assert sorted(picked) == sorted([a, b, c])        # una por proxy, aunque a sea más rápido
+    from proxymanager.selection import ProxyBusy
+    with pytest.raises(ProxyBusy):
+        m.choose(acquire=True)
+    m.release(a)
+    assert m.choose(acquire=True) == a
+
+
+def test_much_worse_reliability_is_not_chosen_even_if_idle(tmp_path):
+    m, (a, b, _) = _store(tmp_path)
+    for _ in range(4):
+        m.record(a, "check", True, 500)
+    m.record(b, "check", True, 10); m.record(b, "check", False)
+    assert m.choose(acquire=True) == a and m.choose(acquire=True) == a
+
+
+def test_inflight_is_released_after_each_request(tmp_path, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("8.8.8.8", 443))])
+    app = create_app(make_settings(tmp_path, proxy_max_inflight=1), transport=httpx.MockTransport(lambda r: httpx.Response(200, text="Producto de prueba")))
+    with TestClient(app) as c:
+        pid = add_proxy(c)
+        import sqlite3, time
+        with sqlite3.connect(str(tmp_path / "test.db")) as db:
+            db.execute("INSERT INTO proxy_events (proxy_id, at, source, reachable, duration_ms) VALUES (?, ?, 'check', 1, 5)", (pid, time.time()))
+        body = {"url": "https://lab.example/", "use_proxy": True}
+        assert c.post("/scrape", headers=E, json=body).status_code == 200
+        assert c.post("/scrape", headers=E, json=body).status_code == 200   # liberó la concurrencia tras la primera

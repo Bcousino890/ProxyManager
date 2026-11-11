@@ -13,7 +13,7 @@ from .fetch import DestinationRejected, fetch, guard_url
 from .storage import SessionStore
 from .cookies import CookieStore
 from .proxies import ProxyStore
-from .selection import NoHealthyProxy, ProxyMetrics
+from .selection import NoHealthyProxy, ProxyBusy, ProxyMetrics
 from .transport import PinnedProxyTransport
 from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
@@ -43,7 +43,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     proxies = ProxyStore(settings.db_path, settings.credential_key)
     limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_window_seconds)
     audit = AuditLog(settings.db_path)
-    metrics = ProxyMetrics(settings.db_path, settings.proxy_window_seconds, settings.proxy_min_success_rate)
+    metrics = ProxyMetrics(settings.db_path, settings.proxy_window_seconds, settings.proxy_min_success_rate, settings.proxy_max_inflight)
     health_checks = ProxyHealth(proxies, settings, transport, metrics)
     @asynccontextmanager
     async def lifespan(app):
@@ -176,11 +176,18 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             if request.use_proxy:
                 _, hostname = guard_url(request.url, settings)
                 try:
-                    proxy_id = metrics.choose(request.country, request.session_id)
+                    proxy_id = metrics.choose(request.country, request.session_id, acquire=True)
                 except NoHealthyProxy as exc:
                     raise HTTPException(status_code=503, detail=str(exc)) from exc
-                route = transport or PinnedProxyTransport(health_checks.connection(proxy_id), hostname)
-            result = await fetch(request.url, settings, route, cookie_header, on_set_cookie)
+                except ProxyBusy as exc:
+                    raise HTTPException(status_code=429, detail=str(exc), headers={"Retry-After": "1"}) from exc
+            try:
+                if proxy_id:
+                    route = transport or PinnedProxyTransport(health_checks.connection(proxy_id), hostname)
+                result = await fetch(request.url, settings, route, cookie_header, on_set_cookie)
+            finally:
+                if proxy_id:
+                    metrics.release(proxy_id)
             if proxy_id:
                 metrics.record(proxy_id, "scrape", result.get("status_code") is not None, result.get("duration_ms"))
         except DestinationRejected as exc:
