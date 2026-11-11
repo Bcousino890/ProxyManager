@@ -136,3 +136,7 @@ Se añadió `.github/workflows/ci.yml` para ejecutar `pytest -q` con Python 3.12
 ## Codex finish: alertas webhook opcionales (11 noviembre 2026)
 
 Implementado `PROXYMANAGER_ALERT_WEBHOOK_URL` (vacío por defecto). Si se configura, solo acepta HTTPS sin credenciales ni fragmento. El servicio emite un aviso al pasar de sano a no sano según las métricas existentes y otro al superar el 80 % del presupuesto mensual registrado manualmente. Los cuerpos contienen únicamente tipo de evento, identificador de proxy o mes, y cifras de gasto; excluyen conceptos, claves, credenciales y destinos. Las pruebas usan `httpx.MockTransport`: comprueban que sin configurar no hay envíos, que el aviso de salud ocurre una sola vez por transición y que el concepto privado no aparece en la alerta de presupuesto. Evidencia: `NPM_CONFIG_PREFIX=/tmp/pm-npm .venv/bin/pytest -q` → 62 passed, 1 warning. No se ha configurado ni contactado ningún webhook real. La entrega del aviso es de mejor esfuerzo y no tiene reintentos persistentes.
+
+## Codex finish: copia de seguridad SQLite (11 noviembre 2026)
+
+`scripts/backup.sh` crea una copia consistente con `sqlite3 .backup`, directorio 0700, archivo 0600 y retención por días configurable. La clave de cifrado se respalda aparte; el script no la lee. `docs/deploy.md` describe uso y restauración. Evidencia: `.venv/bin/pytest -q tests/test_backup.py` → 1 passed; el test abre la copia, comprueba una fila, permisos y eliminación de una copia de diez días. Pendiente comprobar el programa de copias y una restauración en un VPS autorizado.
