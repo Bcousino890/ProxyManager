@@ -15,6 +15,7 @@ from .cookies import CookieStore
 from .proxies import ProxyStore
 from .selection import NoHealthyProxy, ProxyBusy, ProxyMetrics
 from .transport import PinnedProxyTransport
+from .bench import BenchConflict, BenchRunner, BenchStore
 from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
 
@@ -27,6 +28,15 @@ class ProxyCreate(BaseModel):
     country: str
     username: str | None = None
     password: str | None = None
+
+
+class BenchCreate(BaseModel):
+    url: str
+    requests: int
+    concurrency: int = 1
+    rps: float | None = None
+    use_proxy: bool = True
+    country: str | None = None
 
 
 class ScrapeRequest(BaseModel):
@@ -44,13 +54,17 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_window_seconds)
     audit = AuditLog(settings.db_path)
     metrics = ProxyMetrics(settings.db_path, settings.proxy_window_seconds, settings.proxy_min_success_rate, settings.proxy_max_inflight)
+    bench = BenchStore(settings.db_path)
     health_checks = ProxyHealth(proxies, settings, transport, metrics)
+    bench_runner = BenchRunner(bench, metrics, health_checks, settings, transport)
+
     @asynccontextmanager
     async def lifespan(app):
         if settings.strict and (found := settings.problems()):
             raise RuntimeError("Configuración insegura: " + "; ".join(found))
         audit.purge(settings.audit_retention_days)
-        workers = [asyncio.create_task(health_checks.worker()) for _ in range(settings.health_concurrency)]
+        bench.recover()
+        workers = [asyncio.create_task(health_checks.worker()) for _ in range(settings.health_concurrency)] + [asyncio.create_task(bench_runner.worker())]
         try:
             yield
         finally:
@@ -154,6 +168,32 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         except ValueError as exc:
             raise HTTPException(422, "Destino, configuración o capacidad de cola inválidos") from exc
         return {"job_id": job_id, "state": "queued"}
+
+    @app.post("/v1/benchmarks", status_code=202)
+    def create_benchmark(request: BenchCreate, owner: str = Depends(require("bench:write"))):
+        if not 1 <= request.requests <= settings.bench_max_requests or not 1 <= request.concurrency <= settings.bench_max_concurrency or (request.rps is not None and request.rps <= 0):
+            raise HTTPException(422, f"Límites: 1-{settings.bench_max_requests} solicitudes, concurrencia 1-{settings.bench_max_concurrency}, rps > 0")
+        try:
+            guard_url(request.url, settings)
+            params = {**request.model_dump(), "url": request.url.split("?")[0].split("#")[0]}
+            return {"id": bench.create(owner, params), "state": "queued"}
+        except DestinationRejected as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except BenchConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get("/v1/benchmarks/{run_id}")
+    def get_benchmark(run_id: str, owner: str = Depends(require("bench:read"))):
+        found = bench.get(run_id, owner)
+        if found is None:
+            raise HTTPException(404, "Benchmark no encontrado")
+        return found
+
+    @app.post("/v1/benchmarks/{run_id}/cancel", status_code=202)
+    def cancel_benchmark(run_id: str, owner: str = Depends(require("bench:write"))):
+        if not bench.cancel(run_id, owner):
+            raise HTTPException(404, "Benchmark no encontrado o ya terminado")
+        return {"id": run_id, "cancel_requested": True}
 
     @app.get("/v1/proxies/{proxy_id}/stats")
     def proxy_stats(proxy_id: str, _: str = Depends(require("proxies:read"))):
