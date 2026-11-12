@@ -9,6 +9,7 @@ import time
 import uuid
 
 from .fetch import fetch, guard_url
+from .usage import UsageStore, classify
 from .selection import NoHealthyProxy, ProxyBusy
 from .transport import PinnedProxyTransport
 
@@ -86,8 +87,8 @@ def percentile(sorted_values: list[float], p: float) -> float | None:
 
 
 class BenchRunner:
-    def __init__(self, bench: BenchStore, metrics, health, settings, transport=None):
-        self.bench, self.metrics, self.health, self.settings, self.transport = bench, metrics, health, settings, transport
+    def __init__(self, bench: BenchStore, metrics, health, settings, transport=None, usage: UsageStore | None = None):
+        self.bench, self.metrics, self.health, self.settings, self.transport, self.usage = bench, metrics, health, settings, transport, usage
 
     async def worker(self):
         while True:
@@ -160,14 +161,9 @@ class BenchRunner:
                     return
                 except Exception:  # noqa: BLE001
                     proxy_id, result = None, {"status_code": None}
-                if result.get("success"):
-                    kind = "success"
-                elif result.get("status_code") is None:
-                    kind = "transport_error"
-                elif result.get("validation", {}).get("challenge_detected"):
-                    kind = "challenge"
-                else:
-                    kind = "unexpected_response"
+                kind = classify(result)
+                if self.usage:
+                    await asyncio.to_thread(self.usage.record, hostname, "bench", proxy_id, result)
                 async with lock:
                     outcomes[kind] = outcomes.get(kind, 0) + 1
                     state["done"] += 1

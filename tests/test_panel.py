@@ -17,12 +17,17 @@ def test_panel_is_static_with_strict_headers_and_no_inline_code(tmp_path):
         assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", page.text)       # sin scripts en línea
         assert "onclick" not in page.text and "<style" not in page.text and "style=" not in page.text   # CSP sin unsafe-inline
         assert c.get("/panel/style.css").headers["content-type"].startswith("text/css")
-        script = c.get("/panel/app.js")
-        assert script.status_code == 200 and "javascript" in script.headers["content-type"]
-        assert "innerHTML" not in script.text.replace("nunca innerHTML", "")   # solo textContent
-        assert "admin-secret" not in page.text + script.text
-        assert 'data-tab="sessions"' in page.text
-        assert 'innerHTML' not in script.text.replace('nunca innerHTML', '')
+        scripts = ""
+        for name in ("icons.js", "charts.js", "app.js"):
+            script = c.get(f"/panel/{name}")
+            assert script.status_code == 200 and "javascript" in script.headers["content-type"] and f"/panel/{name}" in page.text
+            assert "innerHTML" not in script.text and "outerHTML" not in script.text and "insertAdjacentHTML" not in script.text   # solo textContent
+            assert "eval(" not in script.text and "document.write" not in script.text
+            scripts += script.text
+        assert "admin-secret" not in page.text + scripts
+        for view in ("overview", "proxies", "sessions", "bench", "keys", "playground", "usage", "expenses", "audit"):
+            assert f'data-view="{view}"' in page.text and f'id="view-{view}"' in page.text
+        assert "PROXYMANAGER_API_KEY" in scripts                                  # los ejemplos de código usan una variable, nunca la clave real
 
 
 def test_overview_and_benchmark_list_require_scopes(tmp_path):

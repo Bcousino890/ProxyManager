@@ -13,3 +13,5 @@ Las comprobaciones de salud usan ya workers persistentes con lease y reintentos 
 Reparto: Codex ejecuta `handoff/PROMPT-TEMP-SERVER.md` (servidor temporal, con las reglas de gasto y confirmación); Claude lleva GitHub y código. Claves múltiples hechas. Siguiente en código: cerrar `/docs` y `/openapi.json` en modo estricto, registro de bytes por proxy, importación de lotes desde el panel.
 
 Hecho en código: cierre de /docs en estricto, bytes por proxy y importación de lotes desde el panel. En código ya no queda nada crítico sin hacer; lo que sigue depende del propietario: servidor temporal (Codex, PROMPT-TEMP-SERVER.md), servicio de IP aprobado, autorización de benchmarks, revisión de seguridad independiente y 30 días de operación.
+
+Rediseño del panel listo en `claude/redesign-dashboard` (ver STATUS.md). Pendiente: desplegarlo en el servidor temporal (sesión SSH), revisión visual del propietario y cierre de la instancia, el grupo de seguridad y el par de claves. Los datos de uso empiezan vacíos en un servidor con base antigua: se rellenan con el uso real; no se inventan.

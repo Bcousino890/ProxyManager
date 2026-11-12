@@ -7,104 +7,231 @@
 <link rel="stylesheet" href="/panel/style.css">
 </head>
 <body>
-<header><h1>ProxyManager</h1><span id="who" class="muted"></span><button id="logout" class="hidden">Salir</button></header>
-<main>
-<section id="login" class="card">
-  <h2>Acceder</h2>
-  <label for="key">Clave API (no se guarda en disco; se pierde al cerrar la pestaña)</label>
-  <div class="row"><input id="key" type="password" autocomplete="off"><button id="enter" class="primary">Entrar</button></div>
-</section>
-<div id="msg" role="status" aria-live="polite"></div>
-<div id="app" class="hidden">
-  <nav id="tabs">
-    <button data-tab="overview" aria-pressed="true">Proxies</button>
-    <button data-tab="sessions" aria-pressed="false">Sesiones</button>
-    <button data-tab="bench" aria-pressed="false">Benchmarks</button>
-    <button data-tab="expenses" aria-pressed="false">Gastos</button>
-    <button data-tab="keys" aria-pressed="false">Claves</button>
-    <button data-tab="audit" aria-pressed="false">Auditoría</button>
-  </nav>
-  <section id="tab-sessions" class="card hidden">
-    <h2>Mis sesiones</h2>
-    <p class="muted">Las sesiones caducadas no aparecen. Borrar una sesión elimina también sus cookies.</p>
-    <button id="s-create" class="primary">Crear sesión</button>
-    <div class="wrap"><table class="table"><thead><tr><th>Identificador</th><th>Creada</th><th>Caduca</th><th>Acciones</th></tr></thead><tbody id="sessions"></tbody></table></div>
-  </section>
-  <section id="tab-overview" class="card">
-    <h2>Proxies <span id="summary" class="muted"></span></h2>
-    <p id="traffic" class="muted"></p>
-    <div class="row"><div><label for="checkurl">URL de comprobación (host permitido)</label><input id="checkurl" placeholder="https://…"></div><button id="refresh">Actualizar</button></div>
-    <div class="wrap"><table class="table"><thead><tr><th>Proxy</th><th>País</th><th>Estado</th><th>Éxito</th><th>Latencia</th><th>Acciones</th></tr></thead><tbody id="proxies"></tbody></table></div>
-  </section>
-  <section id="tab-add" class="card">
-    <details>
-      <summary>Añadir proxy</summary>
-      <div class="row">
-        <div><label for="p-provider">Proveedor</label><input id="p-provider"></div>
-        <div><label for="p-host">Host</label><input id="p-host" placeholder="isp.ejemplo.com"></div>
-        <div><label for="p-port">Puerto</label><input id="p-port" type="number" min="1" max="65535"></div>
-        <div><label for="p-country">País (ISO, o ZZ)</label><input id="p-country" maxlength="2" value="ZZ"></div>
-        <div><label for="p-kind">Tipo</label><select id="p-kind"><option>unknown</option><option>isp</option><option>residential</option><option>datacenter</option></select></div>
-      </div>
-      <div class="row">
-        <div><label for="p-user">Usuario</label><input id="p-user" autocomplete="off"></div>
-        <div><label for="p-pass">Contraseña (se cifra; no se vuelve a mostrar)</label><input id="p-pass" type="password" autocomplete="new-password"></div>
-        <button id="p-add" class="primary">Guardar proxy</button>
-      </div>
-      <h3>Importar lote</h3>
-      <div class="row">
-        <div><label for="i-provider">Proveedor</label><input id="i-provider"></div>
-      </div>
-      <label for="i-text">Una conexión por línea: host:puerto:usuario:contraseña (máx. 500). Se valida entero antes de guardar y se borra de la pantalla al terminar.</label>
-      <textarea id="i-text" rows="5" autocomplete="off" spellcheck="false"></textarea>
-      <button id="i-add" class="primary">Importar lote</button>
-    </details>
-  </section>
-  <section id="tab-expenses" class="card hidden">
-    <h2>Gastos del mes <span id="exp-month" class="muted"></span></h2>
-    <p id="exp-summary"></p>
-    <progress id="exp-bar" max="100" value="0"></progress>
-    <div class="row">
-      <div><label for="e-concept">Concepto</label><input id="e-concept" maxlength="80" placeholder="p. ej. EC2 Spot 2 h"></div>
-      <div><label for="e-amount">Importe (USD)</label><input id="e-amount" type="number" min="0.01" step="0.01"></div>
-      <button id="e-add" class="primary">Anotar</button>
-    </div>
-    <p class="muted">Lo anotas tú; no se consulta ningún proveedor de facturación.</p>
-    <div class="wrap"><table class="table"><thead><tr><th>Fecha</th><th>Concepto</th><th>USD</th></tr></thead><tbody id="expenses"></tbody></table></div>
-  </section>
-  <section id="tab-bench" class="card hidden">
-    <h2>Benchmarks</h2>
-    <p class="muted">Solo contra destinos autorizados. Los topes los fija el servidor.</p>
-    <div class="row">
-      <div><label for="b-url">URL</label><input id="b-url" placeholder="https://…"></div>
-      <div><label for="b-req">Solicitudes</label><input id="b-req" type="number" min="1" value="50"></div>
-      <div><label for="b-con">Concurrencia</label><input id="b-con" type="number" min="1" value="2"></div>
-      <div><label for="b-rps">Máx. rps (opcional)</label><input id="b-rps" type="number" min="0.1" step="0.1"></div>
-      <button id="b-start" class="primary">Lanzar</button>
-    </div>
-    <div class="wrap"><table class="table"><thead><tr><th>Id</th><th>Estado</th><th>Hechas</th><th>Resultados</th><th>p50 / p95 (ms)</th><th>Acciones</th></tr></thead><tbody id="runs"></tbody></table></div>
-  </section>
-  <section id="tab-keys" class="card hidden">
-    <h2>Claves API</h2>
-    <p class="muted">Crea claves con solo los permisos necesarios. Se muestran una única vez y solo se guarda su huella.</p>
-    <div class="row">
-      <div><label for="k-name">Nombre</label><input id="k-name" maxlength="60" placeholder="p. ej. evaluador-1"></div>
-      <div><label for="k-days">Caduca en (días, opcional)</label><input id="k-days" type="number" min="1" max="3650"></div>
-    </div>
-    <fieldset id="k-scopes"><legend>Permisos</legend></fieldset>
-    <button id="k-create" class="primary">Crear clave</button>
-    <div id="k-new" class="hidden">
-      <label for="k-value">Clave nueva — cópiala ahora; no se volverá a mostrar</label>
-      <div class="row"><input id="k-value" readonly><button id="k-copy">Copiar</button></div>
-    </div>
-    <div class="wrap"><table class="table"><thead><tr><th>Nombre</th><th>Estado</th><th>Permisos</th><th>Último uso</th><th>Acciones</th></tr></thead><tbody id="keys"></tbody></table></div>
-  </section>
-  <section id="tab-audit" class="card hidden">
-    <h2>Auditoría reciente</h2>
-    <div class="wrap"><table class="table"><thead><tr><th>Hora</th><th>Método</th><th>Ruta</th><th>Estado</th></tr></thead><tbody id="events"></tbody></table></div>
-  </section>
+<div id="login-screen" class="login">
+  <form id="login-form" class="card login-card">
+    <div class="brand"><span class="logo" aria-hidden="true"></span><span>ProxyManager</span></div>
+    <h1 class="login-title">Acceder al panel</h1>
+    <label for="key">Clave API</label>
+    <input id="key" type="password" autocomplete="off">
+    <p class="hint">Se guarda solo en esta pestaña y se descarta al salir.</p>
+    <button id="enter" type="submit" class="btn primary wide">Entrar</button>
+    <p id="login-msg" class="login-msg" role="status" aria-live="polite"></p>
+  </form>
 </div>
-</main>
+
+<div id="shell" class="shell hidden">
+  <aside class="sidebar">
+    <div class="brand"><span class="logo" aria-hidden="true"></span><span>ProxyManager</span></div>
+    <nav id="nav" aria-label="Secciones">
+      <button class="nav-item" data-view="overview" data-icon="overview">Resumen</button>
+      <button class="nav-item" data-view="proxies" data-icon="proxies">Proxies</button>
+      <button class="nav-item" data-view="sessions" data-icon="sessions">Sesiones</button>
+      <button class="nav-item" data-view="bench" data-icon="bench">Benchmarks</button>
+      <button class="nav-item" data-view="keys" data-icon="keys">Claves API</button>
+      <button class="nav-item" data-view="playground" data-icon="playground">Playground</button>
+      <button class="nav-item" data-view="usage" data-icon="usage">Uso</button>
+      <button class="nav-item" data-view="expenses" data-icon="expenses">Gastos</button>
+      <button class="nav-item" data-view="audit" data-icon="audit">Auditoría</button>
+    </nav>
+    <div class="side-foot"><button id="logout" class="btn ghost wide">Salir</button></div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar"><h1 id="page-title">Resumen</h1><button id="refresh" class="btn" data-icon="refresh">Actualizar</button></header>
+    <div id="msg" role="status" aria-live="polite"></div>
+    <main id="views">
+
+      <section id="view-overview" class="view" aria-labelledby="page-title">
+        <div id="metrics" class="metrics"></div>
+        <div class="grid2">
+          <article class="card"><h2>Solicitudes por día</h2><div id="ov-requests" class="chart-box"></div></article>
+          <article class="card"><h2>Latencia por día</h2><div id="ov-latency" class="chart-box"></div></article>
+        </div>
+        <article class="card">
+          <h2>Transporte frente a entrega</h2>
+          <p class="note">Un proxy puede responder bien (transporte) y aun así el sitio de destino bloquearlo o mostrar un desafío (entrega). Se miden por separado.</p>
+          <div id="ov-split" class="split"></div>
+        </article>
+      </section>
+
+      <section id="view-proxies" class="view hidden">
+        <article class="card">
+          <div class="row">
+            <div><label for="checkurl">URL de comprobación (host permitido)</label><input id="checkurl" placeholder="https://…"></div>
+          </div>
+          <div class="wrap" tabindex="0" role="region" aria-label="Tabla de proxies"><table class="table"><thead><tr><th>Proxy</th><th>País</th><th>Transporte</th><th>Entrega (24 h)</th><th>Latencia</th><th>Tráfico mes</th><th>Acciones</th></tr></thead><tbody id="proxies"></tbody></table></div>
+          <p id="proxies-empty" class="empty hidden">No hay proxies. Añade uno o importa un lote debajo.</p>
+        </article>
+        <article class="card">
+          <details>
+            <summary>Añadir proxy</summary>
+            <div class="row">
+              <div><label for="p-provider">Proveedor</label><input id="p-provider"></div>
+              <div><label for="p-host">Host</label><input id="p-host" placeholder="isp.ejemplo.com"></div>
+              <div><label for="p-port">Puerto</label><input id="p-port" type="number" min="1" max="65535"></div>
+              <div><label for="p-country">País (ISO, o ZZ)</label><input id="p-country" maxlength="2" value="ZZ"></div>
+              <div><label for="p-kind">Tipo</label><select id="p-kind"><option>unknown</option><option>isp</option><option>residential</option><option>datacenter</option></select></div>
+            </div>
+            <div class="row">
+              <div><label for="p-user">Usuario</label><input id="p-user" autocomplete="off"></div>
+              <div><label for="p-pass">Contraseña (se cifra; no se vuelve a mostrar)</label><input id="p-pass" type="password" autocomplete="new-password"></div>
+              <button id="p-add" class="btn primary">Guardar proxy</button>
+            </div>
+            <h3>Importar lote</h3>
+            <div class="row"><div><label for="i-provider">Proveedor</label><input id="i-provider"></div></div>
+            <label for="i-text">Una conexión por línea: host:puerto:usuario:contraseña (máx. 500). Se valida entero antes de guardar y se borra de la pantalla al terminar.</label>
+            <textarea id="i-text" rows="5" autocomplete="off" spellcheck="false"></textarea>
+            <button id="i-add" class="btn primary">Importar lote</button>
+          </details>
+        </article>
+      </section>
+
+      <section id="view-sessions" class="view hidden">
+        <article class="card">
+          <p class="note">Las sesiones caducadas no aparecen. Borrar una sesión elimina también sus cookies.</p>
+          <button id="s-create" class="btn primary">Crear sesión</button>
+          <div class="wrap" tabindex="0" role="region" aria-label="Tabla de sesiones"><table class="table"><thead><tr><th>Identificador</th><th>Creada</th><th>Caduca</th><th>Acciones</th></tr></thead><tbody id="sessions"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-bench" class="view hidden">
+        <article class="card">
+          <p class="note">Solo contra destinos autorizados. Los topes los fija el servidor.</p>
+          <div class="row">
+            <div class="grow"><label for="b-url">URL</label><input id="b-url" placeholder="https://…"></div>
+            <div><label for="b-req">Solicitudes</label><input id="b-req" type="number" min="1" value="50"></div>
+            <div><label for="b-con">Concurrencia</label><input id="b-con" type="number" min="1" value="2"></div>
+            <div><label for="b-rps">Máx. rps (opcional)</label><input id="b-rps" type="number" min="0.1" step="0.1"></div>
+            <button id="b-start" class="btn primary">Lanzar</button>
+          </div>
+          <div class="wrap" tabindex="0" role="region" aria-label="Tabla de benchmarks"><table class="table"><thead><tr><th>Id</th><th>Estado</th><th>Hechas</th><th>Resultados</th><th>p50 / p95 (ms)</th><th>Acciones</th></tr></thead><tbody id="runs"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-keys" class="view hidden">
+        <article class="card">
+          <p class="note">Crea claves con solo los permisos necesarios. Se muestran una única vez y solo se guarda su huella.</p>
+          <div class="row">
+            <div><label for="k-name">Nombre</label><input id="k-name" maxlength="60" placeholder="p. ej. evaluador-1"></div>
+            <div><label for="k-days">Caduca en (días, opcional)</label><input id="k-days" type="number" min="1" max="3650"></div>
+          </div>
+          <fieldset id="k-scopes"><legend>Permisos</legend></fieldset>
+          <button id="k-create" class="btn primary">Crear clave</button>
+          <div id="k-new" class="newkey hidden">
+            <label for="k-value">Clave nueva — cópiala ahora; no se volverá a mostrar</label>
+            <div class="row"><input id="k-value" type="password" readonly autocomplete="off"><button id="k-toggle" class="btn" aria-pressed="false">Mostrar</button><button id="k-copy" class="btn">Copiar</button></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="wrap" tabindex="0" role="region" aria-label="Tabla de claves API"><table class="table"><thead><tr><th>Nombre</th><th>Clave</th><th>Estado</th><th>Permisos</th><th>Último uso</th><th>Acciones</th></tr></thead><tbody id="keys"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-playground" class="view hidden">
+        <div class="play">
+          <div class="play-main">
+            <article class="card">
+              <form id="pg-form" class="reqbar">
+                <label class="sr" for="pg-url">URL de destino</label>
+                <select id="pg-method" aria-label="Método" disabled><option>GET</option></select>
+                <input id="pg-url" placeholder="https://host-permitido/ruta" autocomplete="off">
+                <button id="pg-run" type="submit" class="btn primary run">Ejecutar</button>
+              </form>
+              <p class="links"><button id="pg-example" type="button" class="linkbtn">Usar una URL de ejemplo</button><span class="muted"> · Solo GET; el destino debe estar en la lista permitida.</span></p>
+            </article>
+            <article id="pg-result" class="card">
+              <div id="pg-empty" class="resp-empty"><span id="pg-empty-icon" class="resp-icon"></span><span>La respuesta aparecerá aquí</span></div>
+              <div id="pg-resp" class="hidden">
+                <div class="resp-head"><span id="pg-status" class="chip"></span><span id="pg-url-shown" class="mono grow"></span></div>
+                <div id="pg-meta" class="meta"></div>
+                <div id="pg-callout" class="callout hidden"></div>
+                <div class="tabs" role="tablist" aria-label="Detalle de la respuesta">
+                  <button id="pg-tab-body" class="tab" role="tab" aria-selected="true" data-pane="body">Cuerpo</button>
+                  <button id="pg-tab-details" class="tab" role="tab" aria-selected="false" data-pane="details">Detalles</button>
+                </div>
+                <div id="pg-pane-body" class="code-block">
+                  <div class="code-bar"><span id="pg-body-info" class="code-info"></span><button id="pg-copy-body" class="codebtn">Copiar cuerpo</button></div>
+                  <pre id="pg-body" class="code" tabindex="0"></pre>
+                </div>
+                <div id="pg-pane-details" class="code-block hidden"><pre id="pg-details" class="code" tabindex="0"></pre></div>
+              </div>
+            </article>
+            <article class="card">
+              <h2>Ejemplos de código</h2>
+              <p class="note">Usan la variable <code>PROXYMANAGER_API_KEY</code>: nunca se inserta tu clave real.</p>
+              <div class="code-block">
+                <div class="code-bar">
+                  <div class="tabs dark" role="tablist" aria-label="Lenguaje">
+                    <button class="tab" role="tab" aria-selected="true" data-lang="curl">cURL</button>
+                    <button class="tab" role="tab" aria-selected="false" data-lang="python">Python</button>
+                    <button class="tab" role="tab" aria-selected="false" data-lang="node">Node.js</button>
+                  </div>
+                  <button id="pg-copy-code" class="codebtn">Copiar</button>
+                </div>
+                <pre id="pg-code" class="code" tabindex="0"></pre>
+              </div>
+            </article>
+          </div>
+          <aside class="card play-opts">
+            <h2 class="eyebrow">Construye tu petición</h2>
+            <label class="switch"><input id="pg-proxy" type="checkbox" role="switch" checked><span class="track" aria-hidden="true"></span><span>Usar proxy</span></label>
+            <label class="switch"><input id="pg-geo" type="checkbox" role="switch"><span class="track" aria-hidden="true"></span><span>Geo targeting</span></label>
+            <div id="pg-geo-box" class="subopt hidden"><label for="pg-country">País (ISO, 2 letras)</label><input id="pg-country" maxlength="2" placeholder="ES"></div>
+            <label class="switch"><input id="pg-sticky" type="checkbox" role="switch"><span class="track" aria-hidden="true"></span><span>Sesión persistente</span></label>
+            <p id="pg-session" class="muted small hidden"></p>
+            <dl class="fixed">
+              <div><dt>Timeout</dt><dd id="pg-timeout">–</dd></div>
+              <div><dt>Máx. cuerpo</dt><dd id="pg-maxbytes">–</dd></div>
+              <div><dt>Reintentos con otro proxy</dt><dd id="pg-attempts">–</dd></div>
+            </dl>
+            <p class="small muted">Estos límites los fija el servidor. Las cookies de sesión se guardan cifradas y no se devuelven.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section id="view-usage" class="view hidden">
+        <article class="card">
+          <div class="row">
+            <div><label for="u-days">Periodo</label><select id="u-days"><option value="7">Últimos 7 días</option><option value="14" selected>Últimos 14 días</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option></select></div>
+          </div>
+          <div id="u-totals" class="metrics tight"></div>
+        </article>
+        <div class="grid2">
+          <article class="card"><h2>Solicitudes por día</h2><div id="u-requests" class="chart-box"></div></article>
+          <article class="card"><h2>Latencia por día</h2><div id="u-latency" class="chart-box"></div></article>
+        </div>
+        <div class="grid2">
+          <article class="card"><h2>Por dominio</h2><div id="u-domains"></div></article>
+          <article class="card"><h2>Resultados</h2><div id="u-outcomes"></div><p class="note small">Solo se registra el dominio de destino, nunca la ruta ni la query.</p></article>
+        </div>
+      </section>
+
+      <section id="view-expenses" class="view hidden">
+        <article class="card">
+          <h2>Gastos del mes <span id="exp-month" class="muted"></span></h2>
+          <p id="exp-summary"></p>
+          <progress id="exp-bar" class="bigbar" max="100" value="0" aria-label="Gasto frente al presupuesto"></progress>
+          <div class="row">
+            <div class="grow"><label for="e-concept">Concepto</label><input id="e-concept" maxlength="80" placeholder="p. ej. EC2 Spot 2 h"></div>
+            <div><label for="e-amount">Importe (USD)</label><input id="e-amount" type="number" min="0.01" step="0.01"></div>
+            <button id="e-add" class="btn primary">Anotar</button>
+          </div>
+          <p class="note">Lo anotas tú; no se consulta ningún proveedor de facturación.</p>
+          <div class="wrap" tabindex="0" role="region" aria-label="Tabla de gastos"><table class="table"><thead><tr><th>Fecha</th><th>Concepto</th><th>USD</th></tr></thead><tbody id="expenses"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-audit" class="view hidden">
+        <article class="card">
+          <div class="wrap" tabindex="0" role="region" aria-label="Tabla de auditoría"><table class="table"><thead><tr><th>Hora</th><th>Método</th><th>Ruta</th><th>Estado</th></tr></thead><tbody id="events"></tbody></table></div>
+        </article>
+      </section>
+
+    </main>
+  </div>
+</div>
+<script src="/panel/icons.js"></script>
+<script src="/panel/charts.js"></script>
 <script src="/panel/app.js"></script>
 </body>
 </html>

@@ -6,6 +6,7 @@ import uuid
 
 import httpx
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi.responses import FileResponse
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -22,6 +23,7 @@ from .bench import BenchConflict, BenchRunner, BenchStore
 from .expenses import ExpenseStore
 from .keys import ApiKeyStore
 from .importer import import_proxy_text
+from .usage import UsageStore
 from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
 from .alerts import AlertService
@@ -81,9 +83,10 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     bench = BenchStore(settings.db_path)
     expenses = ExpenseStore(settings.db_path)
     api_keys = ApiKeyStore(settings.db_path, SCOPES)
+    usage = UsageStore(settings.db_path)
     alerts = AlertService(settings.alert_webhook_url, alert_transport)
     health_checks = ProxyHealth(proxies, settings, transport, metrics, alerts)
-    bench_runner = BenchRunner(bench, metrics, health_checks, settings, transport)
+    bench_runner = BenchRunner(bench, metrics, health_checks, settings, transport, usage)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -91,6 +94,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             raise RuntimeError("Configuración insegura: " + "; ".join(found))
         audit.purge(settings.audit_retention_days)
         metrics.purge_events()
+        usage.purge()
         bench.recover()
         workers = [asyncio.create_task(health_checks.worker()) for _ in range(settings.health_concurrency)] + [asyncio.create_task(bench_runner.worker())]
         try:
@@ -152,13 +156,14 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     def panel_page():
         return FileResponse(panel_dir / "index.html", media_type="text/html", headers=panel_headers)
 
-    @app.get("/panel/style.css", include_in_schema=False)
-    def panel_style():
-        return FileResponse(panel_dir / "style.css", media_type="text/css", headers=panel_headers)
+    panel_types = {".css": "text/css", ".js": "text/javascript"}
+    panel_files = {f.name for f in panel_dir.iterdir() if f.is_file() and f.suffix in panel_types}
 
-    @app.get("/panel/app.js", include_in_schema=False)
-    def panel_script():
-        return FileResponse(panel_dir / "app.js", media_type="text/javascript", headers=panel_headers)
+    @app.get("/panel/{filename}", include_in_schema=False)
+    def panel_asset(filename: str):
+        if filename not in panel_files:  # lista cerrada: sin rutas arbitrarias
+            raise HTTPException(404, "No encontrado")
+        return FileResponse(panel_dir / filename, media_type=panel_types[Path(filename).suffix], headers=panel_headers)
 
     @app.get("/health")
     def health():
@@ -170,7 +175,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
 
     @app.get("/v1/system")
     def system(_: str = Depends(require("system:read"))):
-        return {"service": "ProxyManager", "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd}
+        return {"service": "ProxyManager", "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd,
+                "timeout_seconds": settings.timeout_seconds, "max_response_bytes": settings.max_response_bytes, "proxy_max_inflight": settings.proxy_max_inflight, "scrape_proxy_attempts": settings.scrape_proxy_attempts}
 
     @app.post("/v1/sessions", status_code=201)
     def create_session(owner: str = Depends(require("sessions"))):
@@ -284,13 +290,21 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @app.get("/v1/usage")
+    def usage_summary(days: int = 14, _: str = Depends(require("usage:read"))):
+        if not 1 <= days <= 90:
+            raise HTTPException(422, "days debe estar entre 1 y 90")
+        return usage.summary(days)
+
     @app.get("/v1/overview")
     def overview(_: str = Depends(require("proxies:read"))):
         traffic = metrics.traffic_month()
-        items = [{**p, "stats": metrics.stats(p["id"]), "traffic_month_bytes": traffic.get(p["id"], 0)} for p in proxies.list()]
+        delivery = usage.delivery_by_proxy()
+        empty = {"requests": 0, "success": 0, "blocked": 0, "transport_error": 0, "other": 0}
+        items = [{**p, "stats": metrics.stats(p["id"]), "traffic_month_bytes": traffic.get(p["id"], 0), "delivery_24h": delivery.get(p["id"], empty)} for p in proxies.list()]
         healthy = sum(1 for p in items if p["stats"]["healthy"])
         total_bytes = sum(p["traffic_month_bytes"] for p in items)
-        return {"traffic_month_bytes": total_bytes, "estimated_proxy_cost_usd": round(total_bytes / 1e9 * settings.proxy_cost_per_gb_usd, 4) if settings.proxy_cost_per_gb_usd else None,
+        return {"concurrency": metrics.inflight(), "traffic_month_bytes": total_bytes, "estimated_proxy_cost_usd": round(total_bytes / 1e9 * settings.proxy_cost_per_gb_usd, 4) if settings.proxy_cost_per_gb_usd else None,
                 "proxies": items, "healthy": healthy, "total": len(items), "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd}
 
     @app.get("/v1/benchmarks/{run_id}")
@@ -325,6 +339,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             on_set_cookie = (lambda headers: cookies.record(request.session_id, owner, request.url, headers)) if request.session_id else None
             hostname = guard_url(request.url, settings)[1] if request.use_proxy else None
             tried: set[str] = set()
+            last_proxy = None
             for _ in range(settings.scrape_proxy_attempts if request.use_proxy else 1):
                 proxy_id, route = None, transport
                 if request.use_proxy:
@@ -346,6 +361,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
                 finally:
                     if proxy_id:
                         metrics.release(proxy_id)
+                last_proxy = proxy_id
                 if proxy_id:
                     await alerts.record_proxy(metrics, proxy_id, "scrape", result.get("status_code") is not None, result.get("duration_ms"), result.get("bytes_transferred", 0))
                 if proxy_id is None or result.get("status_code") is not None:
@@ -354,6 +370,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        proxy_id = last_proxy if request.use_proxy else None  # el proxy del último intento, también si se agotaron las alternativas
+        usage.record(urlsplit(request.url).hostname or "", "scrape", proxy_id, result)
         return {"request_id": "req_" + uuid.uuid4().hex, "session_id": request.session_id, "proxy_id": proxy_id, "attempts": len(tried) or 1, **result}
 
     return app
