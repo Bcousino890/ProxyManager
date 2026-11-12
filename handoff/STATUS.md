@@ -154,3 +154,13 @@ Implementado `PROXYMANAGER_ALERT_WEBHOOK_URL` (vacío por defecto). Si se config
 ## CI de GitHub recuperado (12 noviembre 2026, hora de Madrid)
 
 Tras la incidencia de GitHub Actions, se creó el commit vacío `23a4a4c` para generar una ejecución nueva sin cambiar código. La ejecución de pull request [43116283882](https://github.com/Bcousino890/ProxyManager/actions/runs/43116283882) terminó correctamente: `gh run watch 43116283882 --repo Bcousino890/ProxyManager --interval 5 --exit-status` → salida 0; el paso `pytest -q` registró **63 passed, 1 skipped, 1 warning in 5.40s** en Python 3.12. La prueba del panel se omite en CI sin Playwright. En local, `NPM_CONFIG_PREFIX=/tmp/pm-npm .venv/bin/pytest -q` → 64 passed, 1 warning. Las ejecuciones antiguas de la incidencia seguían en cola al comprobarlo y están sustituidas por esta ejecución verde.
+
+## Prueba EC2 temporal interrumpida y recursos limpiados (12 noviembre 2026)
+
+Con autorización expresa del propietario tras mostrar el coste, se lanzó en AWS cuenta Zinto, región `eu-south-2`, una `t3.medium` Spot temporal con Ubuntu 24.04, disco gp3 de 20 GB, IP pública asignada automáticamente, y recursos etiquetados `pm-run=20261112-temp`. Instancia `i-092a828caa9a33fdc`, lanzada a las 00:29 hora de Madrid. La consola la mostró **terminada** unos dos minutos después, con motivo `Client.UserInitiatedShutdown: User initiated shutdown`. La causa concreta del cierre no quedó demostrada; no se desplegó ProxyManager ni se ejecutaron pruebas desde ese servidor.
+
+Tras recuperar el acceso a la consola y con confirmación específica del propietario, se verificó en EC2 España: ninguna instancia activa, ningún volumen EBS, ninguna instantánea propia, ninguna IP elástica, ninguna interfaz de red y ninguna solicitud Spot visible. Se eliminó el grupo de seguridad temporal `sg-0decd5a353e819592` (`pm-temp-20261112`); la consola confirmó el borrado y, tras actualizar, mostró únicamente el grupo predeterminado. Se eliminó el par de claves `pm-temp-20261112`; la consola confirmó el borrado y mostró la lista vacía. La clave privada temporal local se borró y se verificó su ausencia. No se creó una segunda instancia.
+
+El cálculo previo era de unos **0,042 USD para dos horas**, antes de impuestos y transferencia; el coste efectivo de esta instancia breve aún no está confirmado en facturación AWS. Pendientes: despliegue HTTPS, importación y pruebas reales de proxies, medición del gasto efectivo y cualquier prueba de operación remota. Para otra instancia se necesitará un nuevo plan y autorización de gasto.
+
+Verificación local de este cambio documental: `NPM_CONFIG_PREFIX=/tmp/pm-npm .venv/bin/pytest -q` → **64 passed, 1 warning in 8.83s**. No prueba el despliegue remoto.
