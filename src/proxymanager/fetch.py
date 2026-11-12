@@ -48,7 +48,7 @@ async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTranspor
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(transport=transport, timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False) as client:
-            headers = {"Host": host}
+            headers = {**settings.headers_for(host), "Host": host}  # identificación propia y cabeceras autorizadas por el sitio, solo para este host
             if cookie_header:
                 headers["Cookie"] = cookie_header
             request = client.build_request("GET", pinned_url, headers=headers, extensions={"sni_hostname": host})
