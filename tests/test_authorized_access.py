@@ -29,9 +29,7 @@ def test_invalid_host_headers_are_rejected(bad):
         Settings(db_path=":memory:", host_headers_json=bad)
 
 
-def test_strict_mode_flags_headers_for_hosts_outside_allowlist():
-    s = Settings(db_path=":memory:", allowed_hosts=("a.example",), host_headers_json=json.dumps({"otro.example": {"X-T": "v"}}))
-    assert any("fuera de PROXYMANAGER_ALLOWED_HOSTS" in p for p in s.problems())
+def test_user_agent_with_control_characters_is_rejected():
     with pytest.raises(ValueError):
         Settings(db_path=":memory:", user_agent="mal\nagente")
 

@@ -6,6 +6,7 @@ window.PM = window.PM || {};
   const SHAPES = {
     overview: [["rect", { x: 3, y: 3, width: 7, height: 8, rx: 1.5 }], ["rect", { x: 14, y: 3, width: 7, height: 5, rx: 1.5 }], ["rect", { x: 14, y: 12, width: 7, height: 9, rx: 1.5 }], ["rect", { x: 3, y: 15, width: 7, height: 6, rx: 1.5 }]],
     proxies: [["rect", { x: 3, y: 4, width: 18, height: 7, rx: 2 }], ["rect", { x: 3, y: 13, width: 18, height: 7, rx: 2 }], ["path", { d: "M7 7.5h.01M7 16.5h.01" }]],
+    destinations: [["circle", { cx: 12, cy: 12, r: 9 }], ["circle", { cx: 12, cy: 12, r: 5 }], ["circle", { cx: 12, cy: 12, r: 1 }]],
     sessions: [["circle", { cx: 12, cy: 12, r: 9 }], ["path", { d: "M12 7v5l3 2" }]],
     bench: [["path", { d: "M4 18a8 8 0 1 1 16 0" }], ["path", { d: "M12 18l4-6" }], ["path", { d: "M12 4v2M4.9 7.9l1.4 1.4M19.1 7.9l-1.4 1.4" }]],
     keys: [["circle", { cx: 8, cy: 15, r: 4 }], ["path", { d: "M11 12l9-9M16 7l3 3M14 9l2 2" }]],

@@ -16,6 +16,9 @@
 > Asunto: Solicitud de acceso técnico autorizado para un proyecto de investigación
 > Hola, [nombre]. Somos [equipo] de [universidad/organización] y, según [referencia de la autorización], vamos a consultar [alcance: p. ej. N anuncios concretos] con fines de [finalidad]. Para evitar falsos bloqueos, ¿podéis incluir en lista permitida la IP pública [IP del servidor] y/o indicarnos la cabecera, token o User-Agent que prefiráis que usemos? Proponemos un máximo de [X] solicitudes por segundo entre [horas]. Contacto técnico: [nombre, correo, teléfono]. Si queréis que paremos, lo haremos de inmediato.
 
+## Destinos autorizados desde el panel
+Además de `PROXYMANAGER_ALLOWED_HOSTS` (entorno, no editable desde el panel), la sección **Destinos** permite añadir y quitar destinos a mano, sin reiniciar. Reglas: solo la clave de administración de entorno (no se puede delegar en claves adicionales), solo dominios completos (sin IP, puerto, ruta, comodines ni nombres internos), obligatoria la **referencia de la autorización** y una confirmación expresa, queda auditado quién y cuándo, y se siguen bloqueando direcciones privadas y todo lo que no sea HTTPS estándar. Quitar un destino surte efecto de inmediato. No guardes tokens en la referencia.
+
 ## Configuración en ProxyManager
 Todo por entorno; nada de esto se muestra en la API, el panel, los registros ni el repositorio.
 ```bash

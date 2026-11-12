@@ -22,7 +22,7 @@ def guard_url(url: str, settings: Settings) -> tuple[str, str]:
         raise DestinationRejected("URL inválida") from exc
     if parsed.scheme != "https" or not host or parsed.username or parsed.password or parsed.fragment or port not in (None, 443):
         raise DestinationRejected("Solo se permiten URLs HTTPS estándar")
-    if host not in settings.allowed_hosts:
+    if host not in settings.allowed():
         raise DestinationRejected("Destino no autorizado")
     try:
         literal = ipaddress.ip_address(host)

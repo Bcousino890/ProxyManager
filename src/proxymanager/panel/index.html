@@ -25,6 +25,7 @@
     <nav id="nav" aria-label="Secciones">
       <button class="nav-item" data-view="overview" data-icon="overview">Resumen</button>
       <button class="nav-item" data-view="proxies" data-icon="proxies">Proxies</button>
+      <button class="nav-item" data-view="destinations" data-icon="destinations">Destinos</button>
       <button class="nav-item" data-view="sessions" data-icon="sessions">Sesiones</button>
       <button class="nav-item" data-view="bench" data-icon="bench">Benchmarks</button>
       <button class="nav-item" data-view="keys" data-icon="keys">Claves API</button>
@@ -83,6 +84,22 @@
             <textarea id="i-text" rows="5" autocomplete="off" spellcheck="false"></textarea>
             <button id="i-add" class="btn primary">Importar lote</button>
           </details>
+        </article>
+      </section>
+
+      <section id="view-destinations" class="view hidden">
+        <article class="card">
+          <p class="note">ProxyManager solo consulta destinos de esta lista, siempre por HTTPS y nunca direcciones privadas. Añade un destino únicamente si el titular del sitio lo ha autorizado.</p>
+          <div class="row">
+            <div class="grow"><label for="d-host">Destino (dominio, sin https:// ni ruta)</label><input id="d-host" placeholder="www.sitio-autorizado.example" autocomplete="off"></div>
+            <div class="grow"><label for="d-note">Referencia de la autorización</label><input id="d-note" maxlength="200" placeholder="p. ej. correo de autorización del titular, 12/11/2026" autocomplete="off"></div>
+          </div>
+          <label class="check"><input id="d-confirm" type="checkbox"><span>Confirmo que tengo autorización del titular de este sitio para consultarlo.</span></label>
+          <button id="d-add" class="btn primary" disabled>Autorizar destino</button>
+          <p class="note small">No pegues tokens ni contraseñas aquí; la referencia queda registrada y visible para quien pueda ver destinos.</p>
+        </article>
+        <article class="card">
+          <div class="wrap" tabindex="0" role="region" aria-label="Tabla de destinos autorizados"><table class="table"><thead><tr><th>Destino</th><th>Origen</th><th>Referencia</th><th>Añadido</th><th>Acciones</th></tr></thead><tbody id="destinations"></tbody></table></div>
         </article>
       </section>
 

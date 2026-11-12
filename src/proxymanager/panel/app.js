@@ -35,7 +35,7 @@ function denied(e) { return e && e.status === 403 ? "Esta clave no tiene permiso
 /* ---------- navegación ---------- */
 const OUTCOME_LABEL = { success: "Correctas", challenge: "Desafío / CAPTCHA", blocked: "Bloqueadas (403/429)", unexpected_response: "Respuesta inesperada", transport_error: "Error de transporte" };
 const VIEWS = {
-  overview: ["Resumen", () => loadOverview()], proxies: ["Proxies", () => loadProxies()], sessions: ["Sesiones", () => loadSessions()],
+  overview: ["Resumen", () => loadOverview()], proxies: ["Proxies", () => loadProxies()], destinations: ["Destinos autorizados", () => loadDestinations()], sessions: ["Sesiones", () => loadSessions()],
   bench: ["Benchmarks", () => loadRuns()], keys: ["Claves API", () => loadKeys()], playground: ["Playground", () => loadPlayground()],
   usage: ["Uso", () => loadUsage()], expenses: ["Gastos", () => loadExpenses()], audit: ["Auditoría", () => loadAudit()],
 };
@@ -155,6 +155,32 @@ async function importBatch() {
     say("Importadas: " + r.added + " · duplicadas omitidas: " + r.duplicates_skipped + " · total: " + r.total, "ok"); await loadProxies();
   } catch (e) { say(e.status === 403 ? "Esta clave no puede importar proxies." : e.message, "bad"); }
   finally { $("i-text").value = ""; }
+}
+
+/* ---------- Destinos autorizados ---------- */
+async function loadDestinations() {
+  const items = await api("/v1/destinations"), body = $("destinations"); body.replaceChildren();
+  if (!items.length) emptyRow(body, 5, "No hay destinos autorizados: ProxyManager no consultará ningún sitio.");
+  for (const d of items) {
+    const tr = el("tr"), td = el("td");
+    tr.append(el("td", d.host, "mono"), cell(chip(d.source, d.source === "panel" ? "ok" : "muted")), el("td", d.note), el("td", d.added_at ? new Date(d.added_at * 1000).toLocaleString() : "–"));
+    if (d.source === "panel") {
+      const b = el("button", "Quitar", "btn"); b.setAttribute("aria-label", "Quitar destino " + d.host);
+      b.addEventListener("click", async () => {
+        if (!window.confirm("¿Quitar «" + d.host + "»? ProxyManager dejará de consultarlo de inmediato.")) return;
+        try { await api("/v1/destinations/" + encodeURIComponent(d.host), { method: "DELETE" }); await loadDestinations(); say("Destino quitado.", "ok"); } catch (e) { say(e.message, "bad"); }
+      });
+      td.append(b);
+    }
+    tr.append(td); body.append(tr);
+  }
+}
+async function addDestination() {
+  try {
+    await api("/v1/destinations", { method: "POST", body: JSON.stringify({ host: $("d-host").value, note: $("d-note").value, confirmed: $("d-confirm").checked }) });
+    $("d-host").value = ""; $("d-note").value = ""; $("d-confirm").checked = false; $("d-add").disabled = true;
+    say("Destino autorizado.", "ok"); await loadDestinations();
+  } catch (e) { say(e.status === 403 ? "Solo la clave de administración puede autorizar destinos." : e.message, "bad"); }
 }
 
 /* ---------- Sesiones ---------- */
@@ -390,6 +416,7 @@ $("logout").addEventListener("click", () => { key = ""; try { sessionStorage.rem
 $("refresh").addEventListener("click", () => show(current));
 for (const b of document.querySelectorAll(".nav-item")) b.addEventListener("click", () => show(b.dataset.view));
 $("p-add").addEventListener("click", addProxy); $("i-add").addEventListener("click", importBatch);
+$("d-add").addEventListener("click", addDestination); $("d-confirm").addEventListener("change", () => { $("d-add").disabled = !$("d-confirm").checked; });
 $("s-create").addEventListener("click", createSession); $("b-start").addEventListener("click", startBench);
 $("k-create").addEventListener("click", createKey); $("k-toggle").addEventListener("click", toggleKey); $("k-copy").addEventListener("click", () => copyText($("k-value").value, "Clave copiada."));
 $("e-add").addEventListener("click", addExpense); $("u-days").addEventListener("change", () => loadUsage().catch((e) => say(denied(e), "bad")));

@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 from contextlib import asynccontextmanager
 import secrets
 from typing import Literal
@@ -24,6 +25,7 @@ from .expenses import ExpenseStore
 from .keys import ApiKeyStore
 from .importer import import_proxy_text
 from .usage import UsageStore
+from .destinations import DestinationStore
 from .limits import AuditLog, RateLimiter
 from .health import ProxyHealth, QueueFull
 from .alerts import AlertService
@@ -53,6 +55,12 @@ class ProxyImport(BaseModel):
     text: str
 
 
+class DestinationCreate(BaseModel):
+    host: str
+    note: str
+    confirmed: bool = False
+
+
 class KeyCreate(BaseModel):
     name: str
     scopes: list[str]
@@ -73,8 +81,10 @@ class ScrapeRequest(BaseModel):
 
 def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None, alert_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
+    destinations = DestinationStore(settings.db_path, settings.allowed_hosts)
+    settings = dataclasses.replace(settings, registry=destinations)   # a partir de aquí, settings.allowed() incluye los destinos del panel
     store = SessionStore(settings.db_path)
-    cookies = CookieStore(settings.db_path, settings.credential_key, store, settings.allowed_hosts)
+    cookies = CookieStore(settings.db_path, settings.credential_key, store, settings.allowed)
     proxies = ProxyStore(settings.db_path, settings.credential_key)
     limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_window_seconds)
     audit = AuditLog(settings.db_path)
@@ -175,7 +185,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
 
     @app.get("/v1/system")
     def system(_: str = Depends(require("system:read"))):
-        return {"service": "ProxyManager", "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd,
+        return {"service": "ProxyManager", "allowed_hosts": list(settings.allowed()), "monthly_budget_usd": settings.monthly_budget_usd,
                 "timeout_seconds": settings.timeout_seconds, "max_response_bytes": settings.max_response_bytes, "proxy_max_inflight": settings.proxy_max_inflight, "scrape_proxy_attempts": settings.scrape_proxy_attempts}
 
     @app.post("/v1/sessions", status_code=201)
@@ -258,6 +268,24 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     def list_benchmarks(owner: str = Depends(require("bench:read"))):
         return bench.recent(owner)
 
+    @app.get("/v1/destinations")
+    def list_destinations(_: str = Depends(require("destinations:read"))):
+        return destinations.list()
+
+    @app.post("/v1/destinations", status_code=201)
+    def add_destination(request: DestinationCreate, owner: str = Depends(require("destinations:write"))):
+        if not request.confirmed:
+            raise HTTPException(422, "Confirma que tienes autorización del titular del sitio")
+        try:
+            return destinations.add(request.host, request.note, owner)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.delete("/v1/destinations/{host}", status_code=204)
+    def remove_destination(host: str, _: str = Depends(require("destinations:write"))):
+        if not destinations.remove(host):
+            raise HTTPException(404, "Destino no encontrado o configurado en el servidor (no editable)")
+
     @app.post("/v1/keys", status_code=201)
     def create_key(request: KeyCreate, _: str = Depends(require("keys:manage"))):
         try:
@@ -305,7 +333,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         healthy = sum(1 for p in items if p["stats"]["healthy"])
         total_bytes = sum(p["traffic_month_bytes"] for p in items)
         return {"concurrency": metrics.inflight(), "traffic_month_bytes": total_bytes, "estimated_proxy_cost_usd": round(total_bytes / 1e9 * settings.proxy_cost_per_gb_usd, 4) if settings.proxy_cost_per_gb_usd else None,
-                "proxies": items, "healthy": healthy, "total": len(items), "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd}
+                "proxies": items, "healthy": healthy, "total": len(items), "allowed_hosts": list(settings.allowed()), "monthly_budget_usd": settings.monthly_budget_usd}
 
     @app.get("/v1/benchmarks/{run_id}")
     def get_benchmark(run_id: str, owner: str = Depends(require("bench:read"))):
