@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from cryptography.fernet import Fernet
 
 
-SCOPES = ("keys:manage", "expenses:read", "expenses:write", "bench:read", "bench:write", "system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "audit:read")
+SCOPES = ("usage:read", "keys:manage", "expenses:read", "expenses:write", "bench:read", "bench:write", "system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "audit:read")
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class Settings:
     bench_max_requests: int = 1000
     bench_max_concurrency: int = 10
     bench_max_bytes: int = 50_000_000
-    evaluator_scopes: tuple[str, ...] = ("system:read", "sessions", "scrape", "proxies:read")
+    evaluator_scopes: tuple[str, ...] = ("system:read", "sessions", "scrape", "proxies:read", "usage:read")
     strict: bool = False
     rate_limit_window_seconds: float = 60.0
     alert_webhook_url: str = ""

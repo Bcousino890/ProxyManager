@@ -23,6 +23,8 @@ class ApiKeyStore:
         self.db_path, self.valid, self.forbidden = db_path, set(valid_scopes) - set(forbidden_scopes), set(forbidden_scopes)
         with sqlite3.connect(db_path) as db:
             db.execute("CREATE TABLE IF NOT EXISTS api_keys (id TEXT PRIMARY KEY, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, scopes TEXT NOT NULL, created REAL NOT NULL, expires_at REAL, revoked_at REAL, last_used REAL)")
+            if "hint" not in {r[1] for r in db.execute("PRAGMA table_info(api_keys)")}:
+                db.execute("ALTER TABLE api_keys ADD COLUMN hint TEXT NOT NULL DEFAULT ''")
 
     def create(self, name: str, scopes: list[str], expires_days: float | None = None) -> dict:
         name = name.strip()
@@ -37,7 +39,7 @@ class ApiKeyStore:
                 raise ValueError("Demasiadas claves activas; revoca alguna")
             key, key_id, now = PREFIX + secrets.token_urlsafe(32), "key_" + uuid.uuid4().hex[:12], time.time()
             expires = now + expires_days * 86400 if expires_days else None
-            db.execute("INSERT INTO api_keys (id, name, key_hash, scopes, created, expires_at) VALUES (?, ?, ?, ?, ?, ?)", (key_id, name, digest(key), json.dumps(sorted(set(scopes))), now, expires))
+            db.execute("INSERT INTO api_keys (id, name, key_hash, scopes, created, expires_at, hint) VALUES (?, ?, ?, ?, ?, ?, ?)", (key_id, name, digest(key), json.dumps(sorted(set(scopes))), now, expires, key[-4:]))
         return {"id": key_id, "name": name, "key": key, "scopes": sorted(set(scopes)), "expires_at": expires}
 
     def lookup(self, api_key: str) -> frozenset[str] | None:
@@ -55,9 +57,9 @@ class ApiKeyStore:
 
     def list(self) -> list[dict]:
         with sqlite3.connect(self.db_path) as db:
-            rows = db.execute("SELECT id, name, scopes, created, expires_at, revoked_at, last_used FROM api_keys ORDER BY created DESC").fetchall()
+            rows = db.execute("SELECT id, name, scopes, created, expires_at, revoked_at, last_used, hint FROM api_keys ORDER BY created DESC").fetchall()
         now = time.time()
-        return [{"id": r[0], "name": r[1], "scopes": json.loads(r[2]), "created_at": r[3], "expires_at": r[4], "revoked_at": r[5], "last_used_at": r[6],
+        return [{"id": r[0], "name": r[1], "scopes": json.loads(r[2]), "created_at": r[3], "expires_at": r[4], "revoked_at": r[5], "last_used_at": r[6], "hint": ("pm_…" + r[7]) if r[7] else "pm_…",
                  "state": "revoked" if r[5] else ("expired" if r[4] and r[4] <= now else "active")} for r in rows]
 
     def revoke(self, key_id: str) -> bool:

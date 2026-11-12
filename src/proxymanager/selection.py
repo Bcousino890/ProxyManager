@@ -56,6 +56,10 @@ class ProxyMetrics:
                 "avg_duration_ms": None if avg is None else round(avg, 2), "last_success_at": last,
                 "healthy": bool(n and rate >= self.min_rate and last is not None)}
 
+    def inflight(self) -> dict:
+        with self._lock:
+            return {"current": sum(self._inflight.values()), "per_proxy_limit": self.max_inflight, "by_proxy": {k: v for k, v in self._inflight.items() if v}}
+
     def release(self, proxy_id: str) -> None:
         with self._lock:
             self._inflight[proxy_id] = max(self._inflight.get(proxy_id, 0) - 1, 0)
