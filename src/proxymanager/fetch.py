@@ -78,4 +78,5 @@ async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTranspor
             finally:
                 await response.aclose()
     except httpx.HTTPError as exc:
-        return {"success": False, "status_code": None, "error": {"type": "transport_error", "message": str(exc)}, "validation": {"content_expected": False, "challenge_detected": False}}
+        # Solo la clase de la excepción: su texto puede contener datos de la conexión del proxy.
+        return {"success": False, "status_code": None, "error": {"type": "transport_error", "message": type(exc).__name__}, "validation": {"content_expected": False, "challenge_detected": False}}

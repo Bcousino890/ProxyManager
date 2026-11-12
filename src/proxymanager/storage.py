@@ -32,6 +32,11 @@ class SessionStore:
             row = db.execute("SELECT id, created_at, expires_at FROM sessions WHERE id=? AND owner=? AND expires_at>?", (session_id, owner, time.time())).fetchone()
         return {"session_id": row[0], "created_at": row[1], "expires_at": row[2]} if row else None
 
+    def list_active(self, owner: str) -> list[dict]:
+        with self._connect() as db:
+            rows = db.execute("SELECT id, created_at, expires_at FROM sessions WHERE owner=? AND expires_at>? ORDER BY created_at DESC, id DESC", (owner, time.time())).fetchall()
+        return [{"session_id": row[0], "created_at": row[1], "expires_at": row[2]} for row in rows]
+
     def delete(self, session_id: str, owner: str) -> bool:
         with self._connect() as db:
             result = db.execute("DELETE FROM sessions WHERE id=? AND owner=?", (session_id, owner))

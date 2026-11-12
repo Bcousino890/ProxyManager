@@ -10,11 +10,22 @@ from .proxies import ProxyStore
 _HOST = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\Z")
 
 
+MAX_LINES = 500
+
+
 def import_proxy_file(path: Path, store: ProxyStore, provider: str) -> int:
+    return import_proxy_text(path.read_text(), store, provider)
+
+
+def import_proxy_text(text: str, store: ProxyStore, provider: str) -> int:
+    """Valida todo el lote antes de insertar; los errores citan solo el número de línea, nunca su contenido."""
     if not provider.strip():
         raise ValueError("El proveedor no puede estar vacío")
+    lines = text.splitlines()
+    if len(lines) > MAX_LINES:
+        raise ValueError(f"Máximo {MAX_LINES} líneas por lote")
     parsed = []
-    for number, raw in enumerate(path.read_text().splitlines(), 1):
+    for number, raw in enumerate(lines, 1):
         if not raw.strip():
             continue
         fields = raw.strip().split(":", 3)

@@ -12,6 +12,8 @@ from cryptography.fernet import Fernet
 
 from .storage import SessionStore
 
+MAX_COOKIE_BYTES = 4096
+MAX_COOKIES_PER_SESSION = 50
 _COOKIE_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 
@@ -52,6 +54,8 @@ class CookieStore:
                     continue
                 for name, morsel in jar.items():
                     value = morsel.value
+                    if len(name) + len(value) > MAX_COOKIE_BYTES:
+                        continue
                     if not _COOKIE_NAME.fullmatch(name) or any(ord(c) < 32 or ord(c) == 127 or c == ";" for c in value):
                         continue
                     raw_domain = morsel["domain"].lower().lstrip(".").rstrip(".")
@@ -71,6 +75,8 @@ class CookieStore:
                         continue
                     db.execute("DELETE FROM session_cookies WHERE session_id=? AND name=? AND domain=? AND path=?", (session_id, name, domain, path))
                     if expires_at <= now:
+                        continue
+                    if db.execute("SELECT COUNT(*) FROM session_cookies WHERE session_id=?", (session_id,)).fetchone()[0] >= MAX_COOKIES_PER_SESSION:
                         continue
                     db.execute("""INSERT INTO session_cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
                         session_id, name, domain, path, int(not raw_domain), int(bool(morsel["secure"])),
