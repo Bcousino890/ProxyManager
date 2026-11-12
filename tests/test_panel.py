@@ -25,7 +25,7 @@ def test_panel_is_static_with_strict_headers_and_no_inline_code(tmp_path):
             assert "eval(" not in script.text and "document.write" not in script.text
             scripts += script.text
         assert "admin-secret" not in page.text + scripts
-        for view in ("overview", "proxies", "sessions", "bench", "keys", "playground", "usage", "expenses", "audit"):
+        for view in ("overview", "proxies", "destinations", "sessions", "bench", "keys", "playground", "usage", "expenses", "audit"):
             assert f'data-view="{view}"' in page.text and f'id="view-{view}"' in page.text
         assert "PROXYMANAGER_API_KEY" in scripts                                  # los ejemplos de código usan una variable, nunca la clave real
 

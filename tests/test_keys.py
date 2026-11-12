@@ -41,7 +41,8 @@ def test_only_env_admin_manages_keys_and_no_privilege_escalation(tmp_path):
         assert new_key(c, scopes=[]).status_code == 422
         assert new_key(c, name="").status_code == 422
         assert new_key(c, expires_days=-1).status_code == 422
-        extra = new_key(c, scopes=sorted(set(SCOPES) - {"keys:manage"})).json()
+        assert new_key(c, scopes=["destinations:write"]).status_code == 422                 # ni añadir destinos: solo la clave de entorno
+        extra = new_key(c, scopes=sorted(set(SCOPES) - {"keys:manage", "destinations:write"})).json()
         assert c.get("/v1/keys", headers={"X-API-Key": extra["key"]}).status_code == 403   # ni con todos los demás alcances
 
 

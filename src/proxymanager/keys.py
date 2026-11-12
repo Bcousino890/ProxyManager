@@ -19,7 +19,7 @@ def digest(api_key: str) -> str:
 
 
 class ApiKeyStore:
-    def __init__(self, db_path: str, valid_scopes: tuple[str, ...], forbidden_scopes: tuple[str, ...] = ("keys:manage",)):
+    def __init__(self, db_path: str, valid_scopes: tuple[str, ...], forbidden_scopes: tuple[str, ...] = ("keys:manage", "destinations:write")):
         self.db_path, self.valid, self.forbidden = db_path, set(valid_scopes) - set(forbidden_scopes), set(forbidden_scopes)
         with sqlite3.connect(db_path) as db:
             db.execute("CREATE TABLE IF NOT EXISTS api_keys (id TEXT PRIMARY KEY, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, scopes TEXT NOT NULL, created REAL NOT NULL, expires_at REAL, revoked_at REAL, last_used REAL)")

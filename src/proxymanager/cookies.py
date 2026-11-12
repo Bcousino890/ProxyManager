@@ -18,12 +18,12 @@ _COOKIE_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 
 class CookieStore:
-    def __init__(self, db_path: str, key: str, sessions: SessionStore, allowed_hosts: tuple[str, ...]):
+    def __init__(self, db_path: str, key: str, sessions: SessionStore, allowed_hosts):  # tupla fija o función que devuelve los destinos vigentes
         self.db_path = db_path
         self.key = key
         self.cipher = Fernet(key.encode()) if key else None
         self.sessions = sessions
-        self.allowed_hosts = set(allowed_hosts)
+        self._allowed = allowed_hosts if callable(allowed_hosts) else (lambda: allowed_hosts)
         with sqlite3.connect(db_path) as db:
             db.execute("""CREATE TABLE IF NOT EXISTS session_cookies (
                 session_id TEXT NOT NULL, name TEXT NOT NULL, domain TEXT NOT NULL,
@@ -41,7 +41,7 @@ class CookieStore:
             raise ValueError("Configura PROXYMANAGER_CREDENTIAL_KEY para guardar cookies")
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower().rstrip(".")
-        if parsed.scheme != "https" or host not in self.allowed_hosts:
+        if parsed.scheme != "https" or host not in self._allowed():
             raise ValueError("Destino de cookie no autorizado")
         default_path = parsed.path.rsplit("/", 1)[0] or "/"
         now = time.time()
@@ -60,7 +60,7 @@ class CookieStore:
                         continue
                     raw_domain = morsel["domain"].lower().lstrip(".").rstrip(".")
                     domain = raw_domain or host
-                    if domain not in self.allowed_hosts or (host != domain and not host.endswith("." + domain)):
+                    if domain not in self._allowed() or (host != domain and not host.endswith("." + domain)):
                         continue
                     path = morsel["path"] if morsel["path"].startswith("/") else default_path
                     try:
@@ -91,7 +91,7 @@ class CookieStore:
             raise ValueError("Configura PROXYMANAGER_CREDENTIAL_KEY para usar cookies")
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower().rstrip(".")
-        if host not in self.allowed_hosts:
+        if host not in self._allowed():
             return ""
         request_path = parsed.path or "/"
         now = time.time()

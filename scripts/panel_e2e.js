@@ -3,7 +3,7 @@
 // Sale con código 0 si todo pasa; imprime un fallo por línea si no. AXE=1 añade axe-core si está disponible.
 const { chromium } = require("playwright");
 const BASE = process.env.BASE, ADMIN = process.env.ADMIN, EVAL = process.env.EVAL;
-const VIEWS = ["overview", "proxies", "sessions", "bench", "keys", "playground", "usage", "expenses", "audit"];
+const VIEWS = ["overview", "proxies", "destinations", "sessions", "bench", "keys", "playground", "usage", "expenses", "audit"];
 const failures = [];
 let lastStep = "inicio";
 const check = (ok, what) => { if (!ok) failures.push(what); };
@@ -54,6 +54,25 @@ async function go(page, view) { await page.click(`[data-view=${view}]`); await p
     await page.click("#proxies tr button:has-text('Historial')"); await page.waitForSelector(".detail");
 
     lastStep = "sesiones";
+    // destinos autorizados: alta con confirmación y referencia, uso inmediato en el Playground, revocación
+    lastStep = "destinos";
+    await go(page, "destinations");
+    check((await page.textContent("#destinations")).includes("lab.example"), `${name}: el destino del entorno no aparece`);
+    check(await page.isDisabled("#d-add"), `${name}: "Autorizar destino" debería estar desactivado sin confirmar`);
+    await page.fill("#d-host", "https://mal.example/ruta"); await page.fill("#d-note", "Autorización de prueba del titular"); await page.check("#d-confirm", { force: true });
+    await page.click("#d-add"); await page.waitForFunction(() => document.querySelector("#msg").textContent.length > 0);
+    check((await page.textContent("#msg")).toLowerCase().includes("host inválido"), `${name}: un host con esquema/ruta debería rechazarse`);
+    const dest = `nuevo${name.length}.example`;
+    await page.fill("#d-host", dest); await page.fill("#d-note", "Autorización de prueba del titular"); await page.check("#d-confirm", { force: true });
+    await page.click("#d-add"); await page.waitForFunction((h) => document.querySelector("#destinations").textContent.includes(h), dest);
+    check((await page.inputValue("#d-host")) === "" && !(await page.isChecked("#d-confirm")), `${name}: el formulario de destinos no se limpia`);
+    await go(page, "playground"); await page.click("#pg-example");
+    await page.fill("#pg-url", `https://${dest}/ok`); await page.uncheck("#pg-proxy", { force: true }); await page.click("#pg-run"); await page.waitForSelector("#pg-resp:not(.hidden)");
+    check((await page.textContent("#pg-status")).includes("200"), `${name}: el destino recién autorizado no funciona en el Playground`);
+    await go(page, "destinations"); page.once("dialog", (d) => d.accept()); await page.click(`button[aria-label="Quitar destino ${dest}"]`);
+    await page.waitForFunction((h) => !document.querySelector("#destinations").textContent.includes(h), dest);
+    check(!(await page.textContent("#destinations")).includes(dest), `${name}: el destino no se quitó`);
+
     // sesiones
     await go(page, "sessions");
     const known = await page.$$eval("#sessions tr td:first-child", (n) => n.map((x) => x.textContent));

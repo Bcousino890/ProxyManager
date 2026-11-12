@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 import re
@@ -10,7 +10,7 @@ from cryptography.fernet import Fernet
 _HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 _RESERVED_HEADERS = {"host", "cookie", "content-length", "transfer-encoding", "connection", "upgrade", "proxy-authorization", "x-api-key"}
 
-SCOPES = ("usage:read", "keys:manage", "expenses:read", "expenses:write", "bench:read", "bench:write", "system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "audit:read")
+SCOPES = ("destinations:read", "destinations:write", "usage:read", "keys:manage", "expenses:read", "expenses:write", "bench:read", "bench:write", "system:read", "sessions", "scrape", "proxies:read", "proxies:write", "checks:write", "audit:read")
 
 
 @dataclass(frozen=True)
@@ -40,10 +40,11 @@ class Settings:
     proxy_cost_per_gb_usd: float = 0.0
     user_agent: str = ""
     host_headers_json: str = ""
+    registry: object | None = field(default=None, compare=False, repr=False)  # DestinationStore: destinos añadidos desde el panel
     bench_max_requests: int = 1000
     bench_max_concurrency: int = 10
     bench_max_bytes: int = 50_000_000
-    evaluator_scopes: tuple[str, ...] = ("system:read", "sessions", "scrape", "proxies:read", "usage:read")
+    evaluator_scopes: tuple[str, ...] = ("system:read", "sessions", "scrape", "proxies:read", "usage:read", "destinations:read")
     strict: bool = False
     rate_limit_window_seconds: float = 60.0
     alert_webhook_url: str = ""
@@ -58,6 +59,11 @@ class Settings:
             parts = urlsplit(self.alert_webhook_url)
             if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.fragment:
                 raise ValueError("PROXYMANAGER_ALERT_WEBHOOK_URL debe ser HTTPS sin credenciales ni fragmento")
+
+    def allowed(self) -> tuple[str, ...]:
+        """Destinos efectivos: los del entorno más los añadidos desde el panel."""
+        extra = self.registry.hosts() if self.registry is not None else frozenset()
+        return tuple(sorted(set(self.allowed_hosts) | set(extra)))
 
     def host_headers(self) -> dict[str, dict[str, str]]:
         """Cabeceras que el propietario del sitio entregó para un host concreto (p. ej. un token de acceso autorizado)."""
@@ -103,8 +109,6 @@ class Settings:
             Fernet(self.credential_key.encode())
         except Exception:
             found.append("PROXYMANAGER_CREDENTIAL_KEY falta o no es una clave Fernet válida")
-        if unused := set(self.host_headers()) - set(self.allowed_hosts):
-            found.append("PROXYMANAGER_HOST_HEADERS incluye hosts fuera de PROXYMANAGER_ALLOWED_HOSTS: " + ", ".join(sorted(unused)))
         if not self.allowed_hosts:
             found.append("PROXYMANAGER_ALLOWED_HOSTS está vacío")
         if self.rate_limit_requests == 0:
