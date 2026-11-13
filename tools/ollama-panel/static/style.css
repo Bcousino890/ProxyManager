@@ -72,4 +72,6 @@ dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);c
 dialog::backdrop{background:rgb(0 0 0/.45)}dialog h3{margin:0 0 6px}dialog input{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--text);margin-top:8px}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:9px 16px;border-radius:99px;font-size:13.5px;z-index:9}
 .icon-btn{border:0;background:none;font-size:18px;padding:4px 8px}.only-mobile{display:none}
-@media(max-width:820px){.app{grid-template-columns:1fr}.side{position:fixed;inset:0 20% 0 0;z-index:5;transform:translateX(-102%);transition:.2s;box-shadow:4px 0 24px rgb(0 0 0/.25)}.side.open{transform:none}.only-mobile{display:inline-block}.top,.scroll,.composer-wrap{padding-left:14px;padding-right:14px}.chip{display:none}}
+@media(max-width:820px){.app{grid-template-columns:1fr}.side{position:fixed;inset:0 20% 0 0;z-index:5;transform:translateX(-102%);transition:.2s;box-shadow:4px 0 24px rgb(0 0 0/.25)}.side.open{transform:none}.only-mobile{display:inline-block}.top,.scroll,.composer-wrap{padding-left:14px;padding-right:14px}.chip{max-width:120px}}
+
+select.chip{border:0;font:inherit;font-size:12.5px;cursor:pointer;max-width:200px;outline:none}

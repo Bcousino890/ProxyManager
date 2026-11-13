@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deja un pod nuevo listo: Ollama + modelo + Panel. Uso:  bash tools/ollama-panel/setup.sh
 set -e
-MODEL="${PANEL_MODEL:-qwen2.5-coder:14b}"
+MODEL="${PANEL_MODEL:-qwen3-coder:30b}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 command -v ollama >/dev/null || { echo "→ Instalando Ollama"; curl -fsSL https://ollama.com/install.sh | sh; }
 if ! curl -fs localhost:11434/api/tags >/dev/null; then

@@ -4,7 +4,7 @@
 Solo biblioteca estándar. Se ejecuta EN el pod:  python3 server.py
 Variables (todas opcionales):
   PANEL_PORT=8787  PANEL_HOST=127.0.0.1  OLLAMA_URL=http://127.0.0.1:11434
-  PANEL_MODEL=qwen2.5-coder:14b  PANEL_REPO=/ProxyManager  PANEL_WORKDIR=<repo>/pod-work
+  PANEL_MODEL=qwen3-coder:30b  PANEL_REPO=/ProxyManager  PANEL_WORKDIR=<repo>/pod-work
   PANEL_BRANCH=pod-sync  GITHUB_TOKEN=...  POD_HOURLY_USD=0.245  POD_LIMIT_H=3
 """
 import base64, json, os, re, subprocess, threading, time, uuid, urllib.request, urllib.error
@@ -21,7 +21,7 @@ TOKEN_FILE = HOME / "github-token"
 STATE_FILE = HOME / "state.json"
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-MODEL = os.environ.get("PANEL_MODEL", "qwen2.5-coder:14b")
+MODEL = os.environ.get("PANEL_MODEL", "qwen3-coder:30b")
 REPO = Path(os.environ.get("PANEL_REPO", "/ProxyManager"))
 WORKDIR = Path(os.environ.get("PANEL_WORKDIR", REPO / "pod-work"))
 BRANCH = os.environ.get("PANEL_BRANCH", "pod-sync")
@@ -32,7 +32,7 @@ MAX_STEPS = int(os.environ.get("PANEL_MAX_STEPS", "25"))
 WORKDIR.mkdir(parents=True, exist_ok=True)
 
 SYSTEM = f"""Eres un agente de programación que trabaja DENTRO de un pod Linux con GPU. Respondes en español.
-Tienes herramientas reales: bash, read_file, write_file, list_dir, web_search y web_fetch (acceso a internet). Tu directorio de trabajo es {WORKDIR}.
+Tienes herramientas reales: bash, read_file, write_file, list_dir, web_search y web_fetch (acceso a internet). Tu directorio de trabajo es {WORKDIR}. Eres el agente: cuando el usuario pide algo, lo haces tú con las herramientas, sin pedirle que ejecute nada.
 Reglas:
 - SÍ tienes internet y SÍ puedes ejecutar comandos: nunca digas que no tienes acceso ni que no puedes; usa la herramienta.
 - Si no sabes algo o puede haber cambiado (versiones, APIs, documentación), compruébalo en internet antes de responder. web_search solo cubre GitHub, Wikipedia, Stack Overflow y Hacker News; para la última versión de un proyecto usa web_fetch con https://api.github.com/repos/DUEÑO/REPO/releases/latest (campo tag_name); para documentación usa web_fetch con la URL directa.
@@ -40,6 +40,7 @@ Reglas:
 - Nunca inventes salidas de comandos ni digas "ejecuta esto y dime el resultado": ejecútalo tú.
 - Haz los pasos uno a uno; tras cada herramienta lee el resultado y decide el siguiente paso.
 - Verifica tu trabajo (ejecuta el programa o las pruebas) antes de dar por terminada una tarea.
+- El proyecto del usuario ya está clonado en {REPO}: para analizarlo léelo ahí, NO lo vuelvas a clonar. Lo que crees nuevo va en {WORKDIR}.
 - Todo lo que crees o modifiques debe quedar dentro de {WORKDIR}; el panel lo guarda en GitHub (rama {BRANCH}) al terminar.
 - Nunca escribas secretos ni tokens en archivos. Sé breve en el texto final: qué hiciste y qué comprobaste."""
 
@@ -310,8 +311,8 @@ def prep_messages(msgs):
         out.append(m)
     return out
 
-def stream_ollama(msgs, emit, stop):
-    body = json.dumps({"model": MODEL, "messages": prep_messages(msgs), "tools": TOOLS, "stream": True,
+def stream_ollama(msgs, emit, stop, model, tools=True):
+    body = json.dumps({"model": model, "messages": prep_messages(msgs), **({"tools": TOOLS} if tools else {}), "stream": True,
                        "options": {"num_ctx": NUM_CTX, "temperature": 0.2}, "keep_alive": "2h"}).encode()
     req = urllib.request.Request(OLLAMA + "/api/chat", body, {"Content-Type": "application/json"})
     content, calls, stats = "", [], {}
@@ -332,7 +333,8 @@ def stream_ollama(msgs, emit, stop):
                 stats = {"tokens": ec, "tps": round(ec / (ed / 1e9), 1) if ed else None}
     return content, calls, stats
 
-def agent_turn(conv, emit, stop, mode="agent"):
+def agent_turn(conv, emit, stop, mode="agent", model=None):
+    model = model or MODEL
     msgs = conv["messages"]
     seen = {}
     refused = False
@@ -340,7 +342,7 @@ def agent_turn(conv, emit, stop, mode="agent"):
         if stop.is_set():
             emit({"type": "notice", "text": "Detenido por el usuario."}); return
         try:
-            content, calls, stats = stream_ollama(msgs, emit, stop)
+            content, calls, stats = stream_ollama(msgs, emit, stop, model, tools=(mode == "agent"))
         except Exception as e:
             emit({"type": "error", "text": f"No pude hablar con Ollama: {e}"}); return
         if mode == "chat":
@@ -355,8 +357,10 @@ def agent_turn(conv, emit, stop, mode="agent"):
             if not calls and not refused and REFUSAL.search(content):
                 refused = True
                 msgs.append({"role": "assistant", "content": content})
-                msgs.append({"role": "user", "content": "Eso es incorrecto: SÍ tienes acceso a internet y a un shell mediante tus herramientas (web_search, web_fetch, bash). Úsalas ahora para hacer lo que te pedí."})
+                msgs.append({"role": "user", "hidden": True, "content": "Eso es incorrecto: SÍ tienes acceso a internet y a un shell mediante tus herramientas (web_search, web_fetch, bash). Úsalas ahora para hacer lo que te pedí."})
                 emit({"type": "clear_text"}); continue
+        if calls and len(content) > 220:   # borrador de conclusión repetido mientras aún usa herramientas
+            content = ""; emit({"type": "clear_text"})
         a = {"role": "assistant", "content": content, "stats": stats}
         if calls:
             a["tool_calls"] = [{"id": uuid.uuid4().hex[:8], **c} for c in calls]
@@ -523,7 +527,7 @@ class H(BaseHTTPRequestHandler):
             elif text:
                 conv["messages"].append({"role": "user", "content": text})
             if run_model:
-                agent_turn(conv, emit, stop, mode)
+                agent_turn(conv, emit, stop, mode, b.get("model") or MODEL)
             conv["updated"] = time.time(); jsave(conv_path(conv["id"]), conv)
             emit({"type": "title", "title": conv["title"], "id": conv["id"]})
             if mode == "agent" and not stop.is_set() and b.get("auto_push", True):

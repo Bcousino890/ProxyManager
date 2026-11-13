@@ -2,7 +2,7 @@ const $ = s => document.querySelector(s);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const api = (p, body, method) => fetch('/api' + p, body !== undefined || method ? {method: method || 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})} : undefined).then(r => r.json());
-const S = { id: null, mode: localStorage.mode || 'agent', busy: false, cur: null, tools: {} };
+const S = { id: null, mode: localStorage.mode2 === 'chat' ? 'chat' : 'agent', busy: false, cur: null, tools: {} };
 const ICONS = {bash: '›_', read_file: '📄', write_file: '✏️', list_dir: '📁', web_search: '🔎', web_fetch: '🌐'};
 
 function toast(t) { const x = $('#toast'); x.textContent = t; x.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => x.hidden = true, 3500); }
@@ -75,6 +75,7 @@ function render(conv) {
   if (!conv.messages.length) return empty();
   const results = {}; conv.messages.forEach(m => { if (m.role === 'tool') results[m.tool_call_id] = m; });
   for (const m of conv.messages) {
+    if (m.hidden) continue;
     if (m.role === 'user') {
       if (m.shell) { const p = botMsg(); toolCard(p, 'h' + Math.random(), 'bash', {command: m.shell.cmd}); const k = Object.keys(S.tools).pop(); toolDone(k, m.shell.code === 0, m.shell.output); }
       else userMsg(m.display || m.content);
@@ -101,7 +102,7 @@ async function send(text) {
   const flush = (stats) => { if (live) { live.remove(); live = null; } finishText(raw, stats, parent); raw = ''; };
   try {
     const res = await fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: S.id, message: text, mode: S.mode, send_output: $('#sendOut').checked, auto_push: $('#autoPush').checked})});
+      body: JSON.stringify({id: S.id, message: text, mode: S.mode, model: $('#modelSel').value, send_output: $('#sendOut').checked, auto_push: $('#autoPush').checked})});
     const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
     while (true) {
       const {value, done} = await rd.read(); if (done) break;
@@ -138,7 +139,8 @@ async function loadStatus() {
   if (c.pod_id) $('#runpodLink').href = `https://www.runpod.io/console/pods?podId=${c.pod_id}`;
   const o = s.ollama; $('#dOllama').className = 'dot ' + (o.up ? 'ok' : 'bad'); $('#tOllama').textContent = o.up ? 'Responde' : 'Caído';
   $('#loadedTxt').textContent = o.loaded ? `${o.loaded.name} · ${o.loaded.gb} GB` : 'ninguno';
-  $('#modelChip').textContent = s.model; $('#tpsTxt').textContent = s.tps ? s.tps + ' tokens/s' : '—';
+  const sel = $('#modelSel'), ms = o.models || [s.model];
+  if (sel.dataset.sig !== ms.join()) { sel.dataset.sig = ms.join(); const keep = localStorage.model || s.model; sel.innerHTML = ms.map(x => `<option>${esc(x)}</option>`).join(''); sel.value = ms.includes(keep) ? keep : (ms.includes(s.model) ? s.model : ms[0]); } $('#tpsTxt').textContent = s.tps ? s.tps + ' tokens/s' : '—';
   const g = s.gpu; $('#dGpu').className = 'dot ' + (g ? 'ok' : 'bad');
   if (g) { $('#gpuName').textContent = g.name; $('#gpuUtil').textContent = g.util + ' %'; $('#vramBar').style.width = g.mem_used / g.mem_total * 100 + '%';
     $('#vramTxt').textContent = `${(g.mem_used / 1024).toFixed(1)} de ${(g.mem_total / 1024).toFixed(1)} GB`; $('#tempTxt').textContent = g.temp + ' °C'; }
@@ -169,6 +171,9 @@ $('#btnPush').onclick = async () => { $('#btnPush').disabled = true; const r = a
 $('#btnPull').onclick = async () => { const r = await api('/git/pull', {}); $('#ghMsg').textContent = r.msg || ''; toast(r.ok ? '✔ Traído de GitHub' : 'Error al traer'); loadStatus(); };
 $('#btnToken').onclick = () => $('#tokenDlg').showModal();
 $('#tokenSave').onclick = async () => { await api('/git/token', {token: $('#tokenInp').value}); $('#tokenInp').value = ''; toast('Token guardado en el pod'); loadStatus(); };
-document.querySelectorAll('#modeSeg button').forEach(b => { b.onclick = () => { S.mode = b.dataset.mode; localStorage.mode = S.mode; paintMode(); }; });
-function paintMode() { document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode)); $('#autoPush').disabled = S.mode === 'chat'; }
+document.querySelectorAll('#modeSeg button').forEach(b => { b.onclick = () => { S.mode = b.dataset.mode; localStorage.mode2 = S.mode; paintMode(); }; });
+function paintMode() { document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode)); $('#autoPush').disabled = S.mode === 'chat';
+  $('#input').placeholder = S.mode === 'chat' ? 'MODO CHAT: el modelo solo conversa, NO ejecuta nada. Cambia a Agente para que actúe.' : 'Dile al agente qué hacer…  ·  !comando se ejecuta en el pod  ·  /leer URL';
+  $('.composer').style.borderColor = S.mode === 'chat' ? 'var(--warn)' : ''; }
+$('#modelSel').onchange = e => { localStorage.model = e.target.value; };
 paintMode(); empty(); loadStatus(); loadConvs(); setInterval(loadStatus, 8000);
