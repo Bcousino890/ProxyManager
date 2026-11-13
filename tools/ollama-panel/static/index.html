@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Panel del Pod</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side">
+    <div class="brand"><span class="logo">◆</span><b>Panel del Pod</b>
+      <button class="icon-btn only-mobile" id="closeSide" aria-label="Cerrar">✕</button></div>
+
+    <section class="card clock">
+      <div class="clock-row"><span class="big" id="clockTxt">—</span><span class="muted" id="clockCost"></span></div>
+      <div class="bar"><i id="clockBar"></i></div>
+      <div class="clock-foot"><span class="muted" id="clockLimit"></span>
+        <span><button class="link" id="resetClock">Reiniciar reloj</button> · <a class="link" id="runpodLink" target="_blank" rel="noopener" href="https://www.runpod.io/console/pods">Runpod</a></span></div>
+    </section>
+
+    <section class="block">
+      <h4>Sistema</h4>
+      <div class="row"><span class="dot" id="dOllama"></span><span>Ollama</span><b id="tOllama">—</b></div>
+      <div class="row"><span class="dot" id="dGpu"></span><span id="gpuName">GPU</span><b id="gpuUtil">—</b></div>
+      <div class="meter"><i id="vramBar"></i></div>
+      <div class="row small"><span class="muted">VRAM</span><b id="vramTxt">—</b></div>
+      <div class="row small"><span class="muted">Temperatura</span><b id="tempTxt">—</b></div>
+      <div class="row small"><span class="muted">Modelo cargado</span><b id="loadedTxt">—</b></div>
+      <div class="row small"><span class="muted">Velocidad</span><b id="tpsTxt">—</b></div>
+    </section>
+
+    <section class="block">
+      <h4>GitHub</h4>
+      <div class="gh-repo" id="ghRepo">—</div>
+      <div class="muted small" id="ghMeta"></div>
+      <div class="btns">
+        <button class="btn" id="btnPull">Traer</button>
+        <button class="btn primary" id="btnPush">Subir</button>
+        <button class="btn ghost" id="btnToken" title="Token de GitHub">🔑</button>
+      </div>
+      <div class="muted small" id="ghMsg"></div>
+    </section>
+
+    <section class="block grow">
+      <div class="h-row"><h4>Conversaciones</h4><button class="link" id="newConv">+ Nueva</button></div>
+      <ul class="convs" id="convs"></ul>
+    </section>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <button class="icon-btn only-mobile" id="openSide" aria-label="Menú">☰</button>
+      <h1 id="title">Nueva conversación</h1>
+      <div class="top-right">
+        <div class="seg" id="modeSeg" role="group" aria-label="Modo">
+          <button data-mode="agent" class="on" title="El modelo ejecuta herramientas en el pod y sube a GitHub">Agente</button>
+          <button data-mode="chat" title="Solo conversación, sin herramientas">Chat</button>
+        </div>
+        <span class="chip" id="modelChip">—</span>
+      </div>
+    </header>
+
+    <div class="scroll" id="scroll"><div class="thread" id="thread"></div></div>
+
+    <footer class="composer-wrap">
+      <div class="composer">
+        <textarea id="input" rows="1" placeholder="Dile al agente qué hacer…  ·  !comando se ejecuta en el pod  ·  /leer URL"></textarea>
+        <div class="comp-bar">
+          <label class="check"><input type="checkbox" id="sendOut" checked> Enviar salida al modelo</label>
+          <label class="check"><input type="checkbox" id="autoPush" checked> Subir a GitHub al terminar</label>
+          <span class="grow"></span>
+          <button class="btn stop" id="stop" hidden>■ Detener</button>
+          <button class="btn primary" id="send">Enviar</button>
+        </div>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<dialog id="tokenDlg">
+  <form method="dialog">
+    <h3>Token de GitHub</h3>
+    <p class="muted small">Token con permiso <code>repo</code> (o fine-grained con «Contents: write») para subir la rama del pod. Se guarda solo en este pod (<code>~/.pod-panel/github-token</code>, permisos 600) y nunca en el repositorio.</p>
+    <input type="password" id="tokenInp" placeholder="ghp_… / github_pat_…" autocomplete="off">
+    <div class="btns"><button class="btn" value="cancel">Cancelar</button><button class="btn primary" id="tokenSave" value="ok">Guardar</button></div>
+  </form>
+</dialog>
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
