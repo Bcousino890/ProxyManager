@@ -33,18 +33,20 @@ RESEARCH_STEPS = int(os.environ.get("PANEL_RESEARCH_STEPS", "45"))
 WORKDIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = WORKDIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+THINK_MODEL = os.environ.get("PANEL_THINK_MODEL", "qwen3:30b")
 VISION_MODEL = os.environ.get("PANEL_VISION_MODEL", "qwen2.5vl:7b")
 MAX_UPLOAD = 30 * 1024 * 1024
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
 TEXT_EXT = (".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".toml", ".ini", ".log", ".py", ".js", ".ts", ".html", ".css", ".sh", ".sql", ".xml", ".env.example", ".cfg", ".java", ".go", ".rs", ".c", ".cpp", ".h")
 
-SYSTEM_BASE = f"""Eres un agente que trabaja DENTRO de un pod Linux con GPU, con herramientas reales: bash, read_file, write_file, list_dir, web_search, web_fetch (acceso a internet) y describe_image (ver imágenes). Los archivos que sube el usuario quedan en {UPLOAD_DIR}. Tu directorio de trabajo es {WORKDIR}.
+SYSTEM_BASE = f"""Eres un agente que trabaja DENTRO de un pod Linux con GPU, con herramientas reales: bash, read_file, write_file, list_dir, web_search, web_fetch (acceso a internet) y describe_image (ver imágenes) y notify (avisar al usuario). Los archivos que sube el usuario quedan en {UPLOAD_DIR}. Tu directorio de trabajo es {WORKDIR}.
 IDIOMA: responde SIEMPRE en español, aunque el usuario escriba en inglés, las fuentes estén en inglés o el código tenga comentarios en inglés (traduce lo que cites). No traduzcas identificadores, comandos ni nombres de archivos.
 Reglas generales:
 - Eres el agente: cuando el usuario pide algo, lo haces tú con las herramientas. Nunca le pidas que ejecute algo por ti ni inventes salidas de comandos.
 - SÍ tienes internet y SÍ puedes ejecutar comandos: nunca digas que no puedes; usa la herramienta.
 - Actúa, no supongas: si necesitas saber algo del entorno, ejecútalo y lee la salida real. Tras cada herramienta lee el resultado y decide el siguiente paso.
 - El proyecto del usuario ya está clonado en {REPO}: para analizarlo léelo ahí, NO lo vuelvas a clonar. Lo que crees nuevo va en {WORKDIR}; el panel lo guarda en GitHub (rama {BRANCH}) al terminar.
+- Si el usuario pide que le avises (al terminar o después de algo), usa la herramienta notify con un resumen breve; además el panel avisa solo al terminar cada tarea. Razona los pasos antes de actuar y revisa tu propio resultado antes de darlo por bueno.
 - Nunca escribas secretos ni tokens en archivos. Si algo falla, lee el error, corrígelo y reintenta; no lo ocultes.
 - Texto final breve y concreto: qué hiciste, qué comprobaste y qué queda pendiente."""
 
@@ -73,7 +75,9 @@ def system_for(mode):
 
 TOOLS = [
     {"type": "function", "function": {"name": "bash", "description": "Ejecuta un comando bash en el pod y devuelve stdout+stderr y el código de salida.",
-        "parameters": {"type": "object", "properties": {"command": {"type": "string", "description": "Comando a ejecutar"}}, "required": ["command"]}}},
+        "parameters": {"type": "object", "properties": {"command": {"type": "string", "description": "Comando a ejecutar"}, "timeout": {"type": "integer", "description": "Segundos máximos (por defecto 120, máximo 1800)"}}, "required": ["command"]}}},
+    {"type": "function", "function": {"name": "notify", "description": "Envía un aviso al usuario (notificación del navegador). Úsala cuando el usuario pida que le avises, y al terminar una tarea larga con un resumen de una línea.",
+        "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "message": {"type": "string"}}, "required": ["message"]}}},
     {"type": "function", "function": {"name": "read_file", "description": "Lee un archivo de texto.",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
     {"type": "function", "function": {"name": "write_file", "description": "Crea o sobrescribe un archivo con el contenido dado.",
@@ -336,7 +340,7 @@ def needs_approval(name, args):
 def exec_tool(name, args):
     try:
         if name == "bash":
-            code, out = run(args.get("command", ""), timeout=int(args.get("timeout", 120)))
+            code, out = run(args.get("command", ""), timeout=min(int(args.get("timeout", 120)), 1800))
             return code == 0, clip(out.strip() or "(sin salida)") + f"\n[código de salida {code}]"
         if name == "read_file":
             p = safe_path(args.get("path"))
@@ -407,11 +411,11 @@ def prep_messages(msgs, mode="agent"):
         out.append(m)
     return out
 
-def stream_ollama(msgs, emit, stop, model, tools=True, mode="agent"):
+def stream_ollama(msgs, emit, stop, model, tools=True, mode="agent", think=False):
     body = json.dumps({"model": model, "messages": prep_messages(msgs, mode), **({"tools": TOOLS} if tools else {}), "stream": True,
-                       "options": {"num_ctx": NUM_CTX, "temperature": 0.2}, "keep_alive": "2h"}).encode()
+                       "options": {"num_ctx": NUM_CTX, "temperature": 0.6 if think else 0.2}, "keep_alive": "2h", **({"think": True} if think else {})}).encode()
     req = urllib.request.Request(OLLAMA + "/api/chat", body, {"Content-Type": "application/json"})
-    content, calls, stats = "", [], {}
+    content, calls, stats, thinking = "", [], {}, ""
     with urllib.request.urlopen(req, timeout=600) as r:
         for line in r:
             if stop.is_set():
@@ -420,6 +424,9 @@ def stream_ollama(msgs, emit, stop, model, tools=True, mode="agent"):
                 continue
             d = json.loads(line)
             m = d.get("message", {})
+            if m.get("thinking"):
+                thinking += m["thinking"]
+                emit({"type": "thinking", "text": m["thinking"]})
             if m.get("content"):
                 content += m["content"]
                 emit({"type": "token", "text": m["content"]})
@@ -427,10 +434,11 @@ def stream_ollama(msgs, emit, stop, model, tools=True, mode="agent"):
             if d.get("done"):
                 ec, ed = d.get("eval_count", 0), d.get("eval_duration", 0)
                 stats = {"tokens": ec, "tps": round(ec / (ed / 1e9), 1) if ed else None}
+    stats["thinking"] = thinking
     return content, calls, stats
 
-def agent_turn(conv, emit, stop, mode="agent", model=None):
-    model = model or MODEL
+def agent_turn(conv, emit, stop, mode="agent", model=None, think=False):
+    model = THINK_MODEL if think else (model or MODEL)
     msgs = conv["messages"]
     seen = {}
     refused = False
@@ -440,7 +448,7 @@ def agent_turn(conv, emit, stop, mode="agent", model=None):
         if stop.is_set():
             emit({"type": "notice", "text": "Detenido por el usuario."}); return
         try:
-            content, calls, stats = stream_ollama(msgs, emit, stop, model, tools=(mode != "chat"), mode=mode)
+            content, calls, stats = stream_ollama(msgs, emit, stop, model, tools=(mode != "chat"), mode=mode, think=think)
         except Exception as e:
             emit({"type": "error", "text": f"No pude hablar con Ollama: {e}"}); return
         if mode == "chat":
@@ -475,7 +483,8 @@ def agent_turn(conv, emit, stop, mode="agent", model=None):
         content = re.sub(r"</?tool_call>", "", content).strip() if not calls else content
         if calls and len(content) > 220:   # borrador de conclusión repetido mientras aún usa herramientas
             content = ""; emit({"type": "clear_text"})
-        a = {"role": "assistant", "content": content, "stats": stats}
+        th = stats.pop("thinking", "")
+        a = {"role": "assistant", "content": content, "stats": stats, **({"thinking": th} if th else {})}
         if calls:
             a["tool_calls"] = [{"id": uuid.uuid4().hex[:8], **c} for c in calls]
         msgs.append(a)
@@ -497,6 +506,10 @@ def agent_turn(conv, emit, stop, mode="agent", model=None):
                 while not ev.wait(0.5):
                     if stop.is_set(): break
                 ok_run = APPROVALS.pop(c["id"], {}).get("ok", False) and not stop.is_set()
+            if name == "notify":
+                emit({"type": "notify", "title": str(args.get("title") or "Panel del Pod"), "text": str(args.get("message", ""))})
+                msgs.append({"role": "tool", "tool_name": name, "content": "Aviso enviado al usuario.", "tool_call_id": c["id"], "ok": True})
+                emit({"type": "tool_result", "id": c["id"], "ok": True, "output": "Aviso enviado al usuario."}); continue
             key = json.dumps([name, args], sort_keys=True)
             if ok_run and key in seen and name in ("bash", "read_file", "list_dir", "web_search", "web_fetch", "describe_image"):
                 ok, out = True, seen[key] + "\n[AVISO: ya ejecutaste exactamente esto y el resultado es el mismo. No lo repitas: da ahora tu respuesta final al usuario.]"
@@ -679,7 +692,7 @@ class H(BaseHTTPRequestHandler):
                 else:
                     conv["messages"].append({"role": "user", "content": text})
             if run_model:
-                agent_turn(conv, emit, stop, mode, b.get("model") or MODEL)
+                agent_turn(conv, emit, stop, mode, b.get("model") or MODEL, bool(b.get("think")))
             conv["updated"] = time.time(); jsave(conv_path(conv["id"]), conv)
             emit({"type": "title", "title": conv["title"], "id": conv["id"]})
             if mode in ("agent", "research") and not stop.is_set() and b.get("auto_push", True):

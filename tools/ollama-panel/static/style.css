@@ -88,3 +88,7 @@ select.chip{border:0;font:inherit;font-size:12.5px;cursor:pointer;max-width:200p
 .msg.user .atts img{max-width:220px;max-height:180px;border-radius:10px;display:block}
 .msg.user .atts .f{background:rgb(255 255 255/.18);border-radius:8px;padding:4px 10px;font-size:13px}
 .drop{outline:2px dashed var(--accent);outline-offset:-8px}
+
+details.think{border-left:3px solid var(--accent);padding:2px 0 2px 12px;color:var(--muted);font-size:13.5px}
+details.think summary{cursor:pointer;font-weight:600;list-style:none}details.think summary::-webkit-details-marker{display:none}
+details.think .tt{white-space:pre-wrap;margin-top:6px;max-height:260px;overflow:auto}

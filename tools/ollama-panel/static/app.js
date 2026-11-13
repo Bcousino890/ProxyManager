@@ -3,7 +3,7 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const api = (p, body, method) => fetch('/api' + p, body !== undefined || method ? {method: method || 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})} : undefined).then(r => r.json());
 const S = { id: null, mode: ['chat', 'research'].includes(localStorage.mode2) ? localStorage.mode2 : 'agent', busy: false, cur: null, tools: {} };
-const ICONS = {bash: '›_', read_file: '📄', write_file: '✏️', list_dir: '📁', describe_image: '👁', web_search: '🔎', web_fetch: '🌐'};
+const ICONS = {bash: '›_', read_file: '📄', write_file: '✏️', list_dir: '📁', notify: '🔔', describe_image: '👁', web_search: '🔎', web_fetch: '🌐'};
 
 function toast(t) { const x = $('#toast'); x.textContent = t; x.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => x.hidden = true, 3500); }
 const fmtT = s => `${Math.floor(s / 3600)} h ${String(Math.floor(s % 3600 / 60)).padStart(2, '0')} min`;
@@ -87,13 +87,31 @@ function render(conv) {
       if (m.shell) { const p = botMsg(); toolCard(p, 'h' + Math.random(), 'bash', {command: m.shell.cmd}); const k = Object.keys(S.tools).pop(); toolDone(k, m.shell.code === 0, m.shell.output); }
       else userMsg(m.attachments ? (m.display || '') : (m.display || m.content), m.attachments);
     } else if (m.role === 'assistant') {
-      const p = botMsg(); finishText(m.content || '', m.stats, p);
+      const p = botMsg(); if (m.thinking) { const d = el('details', 'think', '<summary>💭 Razonamiento</summary>'); d.append(el('div', 'tt', esc(m.thinking))); p.append(d); }
+      finishText(m.content || '', m.stats, p);
       for (const c of m.tool_calls || []) { const f = c.function, d = toolCard(p, c.id, f.name, f.arguments || {}); d.dataset.name = f.name; const r = results[c.id]; if (r) toolDone(c.id, r.ok !== false, r.content); }
       if (!p.children.length) p.remove();
     }
   }
   scroller.scrollTop = scroller.scrollHeight;
 }
+
+// ---------- avisos
+let beepCtx;
+function beep() { try { beepCtx = beepCtx || new (window.AudioContext || window.webkitAudioContext)(); const o = beepCtx.createOscillator(), g = beepCtx.createGain();
+  o.frequency.value = 880; g.gain.value = .08; o.connect(g); g.connect(beepCtx.destination); o.start(); g.gain.exponentialRampToValueAtTime(.0001, beepCtx.currentTime + .5); o.stop(beepCtx.currentTime + .5); } catch (_) {} }
+const baseTitle = document.title;
+window.addEventListener('focus', () => { document.title = baseTitle; });
+function alertUser(title, text) {
+  if (!$('#notifyOn').checked) return;
+  beep(); toast('🔔 ' + (text || title).slice(0, 120));
+  if (document.hidden) document.title = '✓ ' + title + ' — ' + baseTitle;
+  try { if ('Notification' in window && Notification.permission === 'granted') new Notification(title, {body: (text || '').slice(0, 200)}); } catch (_) {}
+}
+$('#notifyOn').checked = localStorage.notifyOn !== '0';
+$('#notifyOn').onchange = e => { localStorage.notifyOn = e.target.checked ? '1' : '0'; if (e.target.checked && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission(); };
+$('#think').checked = localStorage.think === '1';
+$('#think').onchange = e => { localStorage.think = e.target.checked ? '1' : '0'; };
 
 // ---------- adjuntos
 S.files = [];
@@ -141,12 +159,12 @@ async function send(text) {
   if (!text.startsWith('!')) userMsg(text, atts);
   S.files = S.files.filter(f => f.state === 'err' && false); drawTray();
   setBusy(true);
-  let parent = botMsg(), raw = '', live = null, typing = el('div', 'typing', '<i></i><i></i><i></i>');
+  let parent = botMsg(), raw = '', live = null, think = null, t0 = Date.now(), lastText = '', typing = el('div', 'typing', '<i></i><i></i><i></i>');
   parent.append(typing);
-  const flush = (stats) => { if (live) { live.remove(); live = null; } finishText(raw, stats, parent); raw = ''; };
+  const flush = (stats) => { if (live) { live.remove(); live = null; } if (raw.trim()) lastText = raw; finishText(raw, stats, parent); raw = ''; think = null; };
   try {
     const res = await fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: S.id, message: text, attachments: atts.map(f => ({name: f.name, path: f.path, kind: f.kind})), mode: S.mode, model: $('#modelSel').value, send_output: $('#sendOut').checked, auto_push: $('#autoPush').checked})});
+      body: JSON.stringify({id: S.id, think: $('#think').checked, message: text, attachments: atts.map(f => ({name: f.name, path: f.path, kind: f.kind})), mode: S.mode, model: $('#modelSel').value, send_output: $('#sendOut').checked, auto_push: $('#autoPush').checked})});
     const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
     while (true) {
       const {value, done} = await rd.read(); if (done) break;
@@ -155,6 +173,9 @@ async function send(text) {
         const line = buf.slice(0, i).replace(/^data: /, ''); buf = buf.slice(i + 2); if (!line) continue;
         const ev = JSON.parse(line); typing.remove();
         switch (ev.type) {
+          case 'thinking': { if (!think) { const d = el('details', 'think', '<summary>💭 Razonando…</summary>'); d.open = true; think = el('div', 'tt'); d.append(think); parent.insertBefore(d, typing.isConnected ? typing : null); }
+            think.textContent += ev.text; think.scrollTop = think.scrollHeight; break; }
+          case 'notify': alertUser(ev.title, ev.text); break;
           case 'token': if (!live) { live = el('div', 'text'); parent.append(live); } raw += ev.text; live.textContent = raw; break;
           case 'clear_text': raw = ''; live?.remove(); live = null; break;
           case 'assistant_done': flush(ev.stats); break;
@@ -172,6 +193,7 @@ async function send(text) {
   } catch (e) { thread.append(el('div', 'notice err', 'Conexión perdida: ' + esc(e.message))); }
   typing.remove(); flush(); document.querySelectorAll('.msg.bot:empty').forEach(m => m.remove());
   setBusy(false); loadStatus(); loadConvs();
+  if (Date.now() - t0 > 8000 || document.hidden) alertUser('Tarea terminada', lastText.replace(/[#*`]/g, '').trim().split('\n')[0]);
 }
 
 // ---------- estado y conversaciones
@@ -206,7 +228,7 @@ function newConv() { S.id = null; $('#title').textContent = 'Nueva conversación
 function autosize() { const i = $('#input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 200) + 'px'; }
 $('#input').addEventListener('input', autosize);
 $('#input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
-$('#send').onclick = () => send();
+$('#send').onclick = () => { if ($('#notifyOn').checked && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission(); send(); };
 $('#stop').onclick = () => api('/stop', {id: S.id});
 $('#newConv').onclick = newConv;
 $('#openSide').onclick = () => $('#side').classList.add('open'); $('#closeSide').onclick = () => $('#side').classList.remove('open');
