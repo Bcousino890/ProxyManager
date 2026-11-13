@@ -1,0 +1,9 @@
+[project]
+name = "proxy-manager"
+version = "0.1.0"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pytest",
+    "httpx2"
+]
