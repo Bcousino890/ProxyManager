@@ -17,3 +17,8 @@
 - 2026-11-13 23:39:00 editado core.py
 - 2026-11-13 23:39:02 pruebas OK: 1 aprobadas, 0 falladas/errores (exit 0)
 - 2026-11-13 23:39:05 tarea 5 → COMPLETADO: Escribir tests/test_core.py y pyproject.toml
+- 2026-11-13 23:39:09 commit: Commit creado: d6835b2 Crear proyecto textstats con pytest, tabulate y funcionalidad básica de conteo de palabras
+- 2026-11-13 23:39:14 push OK: Rama agent-e2e-test en GitHub = d6835b2716 (coincide con el commit local)
+- 2026-11-13 23:39:17 tarea 6 → COMPLETADO: Ejecutar pruebas y diagnosticar fallos
+- 2026-11-13 23:39:22 tarea 7 → COMPLETADO: Corregir core.py si es necesario
+- 2026-11-13 23:39:27 tarea 8 → COMPLETADO: Hacer commit y push
