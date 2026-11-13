@@ -11,6 +11,8 @@ fi
 ollama list | grep -q "${MODEL%%:*}" || { echo "→ Descargando $MODEL"; ollama pull "$MODEL"; }
 VISION="${PANEL_VISION_MODEL:-qwen2.5vl:7b}"
 ollama list | grep -q "${VISION%%:*}" || { echo "→ Descargando modelo de visión $VISION"; ollama pull "$VISION"; }
+THINK="${PANEL_THINK_MODEL:-qwen3:30b}"
+ollama list | grep -q "^${THINK} " || { echo "→ Descargando modelo de razonamiento $THINK"; ollama pull "$THINK"; }
 git config --global --add safe.directory '*' 2>/dev/null || true
 for p in $(ss -ltnp 2>/dev/null | grep ":${PANEL_PORT:-8787} " | grep -o "pid=[0-9]*" | cut -d= -f2); do kill $p; done; sleep 1
 cd "$HERE" && setsid nohup python3 server.py >/tmp/panel.log 2>&1 < /dev/null &
