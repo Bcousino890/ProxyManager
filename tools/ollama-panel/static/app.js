@@ -3,7 +3,7 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const api = (p, body, method) => fetch('/api' + p, body !== undefined || method ? {method: method || 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})} : undefined).then(r => r.json());
 const S = { id: null, mode: localStorage.mode || 'agent', busy: false, cur: null, tools: {} };
-const ICONS = {bash: '›_', read_file: '📄', write_file: '✏️', list_dir: '📁'};
+const ICONS = {bash: '›_', read_file: '📄', write_file: '✏️', list_dir: '📁', web_search: '🔎', web_fetch: '🌐'};
 
 function toast(t) { const x = $('#toast'); x.textContent = t; x.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => x.hidden = true, 3500); }
 const fmtT = s => `${Math.floor(s / 3600)} h ${String(Math.floor(s % 3600 / 60)).padStart(2, '0')} min`;
@@ -43,7 +43,7 @@ function empty() {
 function userMsg(t) { thread.append(el('div', 'msg user', esc(t))); bottom(); }
 function botMsg() { const m = el('div', 'msg bot'); thread.append(m); return m; }
 function toolCard(parent, id, name, args) {
-  const summ = name === 'bash' ? args.command : (args.path || '');
+  const summ = name === 'bash' ? args.command : (args.path || args.query || args.url || '');
   const d = el('details', 'tool');
   d.innerHTML = `<summary><span class="ic">${ICONS[name] || '🔧'}</span><span class="nm">${esc(name)}</span><span class="arg">${esc(summ || '')}</span><span class="st run">ejecutando…</span></summary>`;
   if (name === 'write_file') d.append(el('pre', 'out', esc(args.content || '')));

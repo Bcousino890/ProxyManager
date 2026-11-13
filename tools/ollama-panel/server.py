@@ -32,8 +32,10 @@ MAX_STEPS = int(os.environ.get("PANEL_MAX_STEPS", "25"))
 WORKDIR.mkdir(parents=True, exist_ok=True)
 
 SYSTEM = f"""Eres un agente de programación que trabaja DENTRO de un pod Linux con GPU. Respondes en español.
-Tienes herramientas reales: bash, read_file, write_file, list_dir. Tu directorio de trabajo es {WORKDIR}.
+Tienes herramientas reales: bash, read_file, write_file, list_dir, web_search y web_fetch (acceso a internet). Tu directorio de trabajo es {WORKDIR}.
 Reglas:
+- SÍ tienes internet y SÍ puedes ejecutar comandos: nunca digas que no tienes acceso ni que no puedes; usa la herramienta.
+- Si no sabes algo o puede haber cambiado (versiones, APIs, documentación), compruébalo en internet antes de responder. web_search solo cubre GitHub, Wikipedia, Stack Overflow y Hacker News; para la última versión de un proyecto usa web_fetch con https://api.github.com/repos/DUEÑO/REPO/releases/latest (campo tag_name); para documentación usa web_fetch con la URL directa.
 - Actúa, no supongas. Si necesitas saber algo del entorno, ejecútalo con una herramienta y lee la salida real.
 - Nunca inventes salidas de comandos ni digas "ejecuta esto y dime el resultado": ejecútalo tú.
 - Haz los pasos uno a uno; tras cada herramienta lee el resultado y decide el siguiente paso.
@@ -48,10 +50,15 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
     {"type": "function", "function": {"name": "write_file", "description": "Crea o sobrescribe un archivo con el contenido dado.",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
+    {"type": "function", "function": {"name": "web_search", "description": "Busca en internet y devuelve título, URL y fragmento de los primeros resultados.",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "web_fetch", "description": "Descarga una URL y devuelve su texto (HTML limpiado).",
+        "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
     {"type": "function", "function": {"name": "list_dir", "description": "Lista los archivos de un directorio.",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": []}}},
 ]
 
+REFUSAL = re.compile(r"no (tengo|dispongo de) acceso|no puedo (acceder|ejecutar|buscar|navegar|conectarme)|no tengo la capacidad|sin acceso a internet|ejecuta (estos|este|los siguientes) comandos?", re.I)
 DANGEROUS = re.compile(r"(\brm\s+-[a-z]*r|\bmkfs|\bdd\s+if=|:\(\)\s*\{|\bshutdown|\breboot|git\s+push\s+.*(--force|-f\b)|git\s+reset\s+--hard|>\s*/dev/sd|\bchmod\s+-R\s+777\s+/|curl[^|]*\|\s*(sudo\s+)?(ba)?sh|wget[^|]*\|\s*(sudo\s+)?(ba)?sh|\bkill\s+-9\s+1\b|\bpkill\s+ollama)")
 
 # ---------------------------------------------------------------- helpers
@@ -183,6 +190,57 @@ def git_pull():
     return {"ok": code == 0, "msg": clip(out.strip(), 600)}
 
 # ---------------------------------------------------------------- herramientas del agente
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+
+def _get_json(url, headers=None, data=None):
+    req = urllib.request.Request(url, data=data, headers={"User-Agent": "pod-panel/1.0", "Accept": "application/json", **(headers or {})})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.load(r)
+
+def web_search(q, n=5):
+    """Los buscadores web bloquean las IP de los pods, así que se usan APIs abiertas.
+    Con TAVILY_API_KEY se usa Tavily (búsqueda web completa)."""
+    import html as H, urllib.parse
+    qq = urllib.parse.quote(q)
+    if os.environ.get("TAVILY_API_KEY"):
+        d = _get_json("https://api.tavily.com/search", {"Content-Type": "application/json"},
+                      json.dumps({"api_key": os.environ["TAVILY_API_KEY"], "query": q, "max_results": 6}).encode())
+        return "\n".join(f"{i}. {r['title']}\n   {r['url']}\n   {r['content'][:300]}" for i, r in enumerate(d.get("results", []), 1)) or "(sin resultados)"
+    clean = lambda x: H.unescape(re.sub(r"<[^>]+>", "", x or "")).strip()
+    sections, errors = [], []
+    def add(title, items):
+        if items: sections.append(f"## {title}\n" + "\n".join(items))
+    jobs = {
+        "Repositorios de GitHub": lambda: [f"- {r['full_name']} (★{r['stargazers_count']}) {r['html_url']}\n  {(r['description'] or '')[:160]}"
+            for r in _get_json(f"https://api.github.com/search/repositories?q={qq}&per_page={n}").get("items", [])],
+        "Wikipedia": lambda: [f"- {r['title']}: https://en.wikipedia.org/wiki/{urllib.parse.quote(r['title'].replace(' ', '_'))}\n  {clean(r['snippet'])[:200]}"
+            for r in _get_json(f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={qq}&format=json&srlimit={n}")["query"]["search"]],
+        "Stack Overflow": lambda: [f"- {clean(r['title'])} {r['link']}" for r in _get_json(f"https://api.stackexchange.com/2.3/search/advanced?q={qq}&site=stackoverflow&pagesize={n}&order=desc&sort=relevance").get("items", [])],
+        "Hacker News": lambda: [f"- {r.get('title') or r.get('story_title')}: {r.get('url') or 'https://news.ycombinator.com/item?id=' + r['objectID']}"
+            for r in _get_json(f"https://hn.algolia.com/api/v1/search?query={qq}&hitsPerPage={n}").get("hits", []) if r.get("title") or r.get("story_title")],
+    }
+    for title, fn in jobs.items():
+        try: add(title, fn())
+        except Exception as e: errors.append(f"{title}: {e}")
+    out = "\n\n".join(sections) or "(sin resultados)"
+    return out + "\n\n[Nota: búsqueda limitada a GitHub, Wikipedia, Stack Overflow y Hacker News. Para versiones de software usa web_fetch con https://api.github.com/repos/DUEÑO/REPO/releases/latest; para docs usa web_fetch con la URL directa.]"
+
+def web_fetch(url):
+    import html as H
+    if not re.match(r"https?://", url):
+        raise ValueError("la URL debe empezar por http:// o https://")
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "es-ES,es;q=0.9,en;q=0.8"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        ctype = r.headers.get("Content-Type", "")
+        raw = r.read(600000).decode("utf-8", "replace")
+    if "html" in ctype or raw.lstrip().startswith("<"):
+        raw = re.sub(r"<(script|style|noscript|svg|nav|footer)[\s\S]*?</\1>|<!--[\s\S]*?-->", " ", raw)
+        raw = re.sub(r"</(p|div|li|h[1-6]|tr|pre)>|<br\s*/?>", "\n", raw)
+        raw = H.unescape(re.sub(r"<[^>]+>", " ", raw))
+        raw = re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n", raw)).strip()
+    return raw
+
+
 def needs_approval(name, args):
     if name == "bash":
         return bool(DANGEROUS.search(args.get("command", "")))
@@ -201,6 +259,10 @@ def exec_tool(name, args):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(args.get("content", ""))
             return True, f"Escrito {p} ({len(args.get('content', ''))} caracteres)"
+        if name == "web_search":
+            return True, web_search(args.get("query", ""))
+        if name == "web_fetch":
+            return True, clip(web_fetch(args.get("url", "")), 9000)
         if name == "list_dir":
             p = safe_path(args.get("path") or ".")
             items = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name))
@@ -210,23 +272,28 @@ def exec_tool(name, args):
         return False, f"[error] {e}"
 
 def parse_text_tool_call(text):
-    """Algunos modelos escriben las llamadas como JSON en el texto (una o varias) en vez de usar tool_calls."""
-    t = re.sub(r"</?tool_call>|^```(?:json)?\s*$", "", text, flags=re.M).strip()
+    """Algunos modelos escriben las llamadas como JSON en el texto (solas o tras algo de prosa).
+    Devuelve (llamadas, texto_sin_las_llamadas) o None."""
     names = {x["function"]["name"] for x in TOOLS}
-    dec, i, calls = json.JSONDecoder(), 0, []
-    while i < len(t):
-        if t[i].isspace():
-            i += 1; continue
+    dec, calls, spans = json.JSONDecoder(), [], []
+    for m in re.finditer(r"\{\s*\"name\"\s*:", text):
+        if spans and m.start() < spans[-1][1]:
+            continue
         try:
-            o, j = dec.raw_decode(t, i)
+            o, j = dec.raw_decode(text, m.start())
         except ValueError:
-            return None
-        if not (isinstance(o, dict) and o.get("name") in names):
-            return None
-        a = o.get("arguments", o.get("parameters", {}))
-        calls.append({"function": {"name": o["name"], "arguments": a if isinstance(a, dict) else {}}})
-        i = j
-    return calls or None
+            continue
+        if isinstance(o, dict) and o.get("name") in names:
+            a = o.get("arguments", o.get("parameters", {}))
+            calls.append({"function": {"name": o["name"], "arguments": a if isinstance(a, dict) else {}}})
+            spans.append((m.start(), j))
+    if not calls:
+        return None
+    rest, last = "", 0
+    for st, en in spans:
+        rest += text[last:st]; last = en
+    rest = re.sub(r"</?tool_call>|^```(?:json)?\s*$|^```\s*$", "", rest + text[last:], flags=re.M).strip()
+    return calls, rest
 
 # ---------------------------------------------------------------- bucle agéntico
 APPROVALS = {}   # call_id -> {"event", "ok"}
@@ -268,6 +335,7 @@ def stream_ollama(msgs, emit, stop):
 def agent_turn(conv, emit, stop, mode="agent"):
     msgs = conv["messages"]
     seen = {}
+    refused = False
     for step in range(MAX_STEPS):
         if stop.is_set():
             emit({"type": "notice", "text": "Detenido por el usuario."}); return
@@ -278,9 +346,17 @@ def agent_turn(conv, emit, stop, mode="agent"):
         if mode == "chat":
             calls = []
         elif not calls and content:
-            calls = parse_text_tool_call(content) or []
-            if calls:
-                content = ""; emit({"type": "clear_text"})
+            parsed = parse_text_tool_call(content)
+            calls = parsed[0] if parsed else []
+            if parsed:
+                emit({"type": "clear_text"})
+                content = parsed[1]
+                if content: emit({"type": "token", "text": content})
+            if not calls and not refused and REFUSAL.search(content):
+                refused = True
+                msgs.append({"role": "assistant", "content": content})
+                msgs.append({"role": "user", "content": "Eso es incorrecto: SÍ tienes acceso a internet y a un shell mediante tus herramientas (web_search, web_fetch, bash). Úsalas ahora para hacer lo que te pedí."})
+                emit({"type": "clear_text"}); continue
         a = {"role": "assistant", "content": content, "stats": stats}
         if calls:
             a["tool_calls"] = [{"id": uuid.uuid4().hex[:8], **c} for c in calls]
@@ -304,7 +380,7 @@ def agent_turn(conv, emit, stop, mode="agent"):
                     if stop.is_set(): break
                 ok_run = APPROVALS.pop(c["id"], {}).get("ok", False) and not stop.is_set()
             key = json.dumps([name, args], sort_keys=True)
-            if ok_run and key in seen and name in ("bash", "read_file", "list_dir"):
+            if ok_run and key in seen and name in ("bash", "read_file", "list_dir", "web_search", "web_fetch"):
                 ok, out = True, seen[key] + "\n[AVISO: ya ejecutaste exactamente esto y el resultado es el mismo. No lo repitas: da ahora tu respuesta final al usuario.]"
             elif ok_run:
                 ok, out = exec_tool(name, args); seen[key] = out

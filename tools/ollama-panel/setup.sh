@@ -10,7 +10,7 @@ if ! curl -fs localhost:11434/api/tags >/dev/null; then
 fi
 ollama list | grep -q "${MODEL%%:*}" || { echo "→ Descargando $MODEL"; ollama pull "$MODEL"; }
 git config --global --add safe.directory '*' 2>/dev/null || true
-fuser -k "${PANEL_PORT:-8787}/tcp" 2>/dev/null || true
+for p in $(ss -ltnp 2>/dev/null | grep ":${PANEL_PORT:-8787} " | grep -o "pid=[0-9]*" | cut -d= -f2); do kill $p; done; sleep 1
 cd "$HERE" && setsid nohup python3 server.py >/tmp/panel.log 2>&1 < /dev/null &
 sleep 2
 echo "✔ Panel en http://127.0.0.1:${PANEL_PORT:-8787}"
