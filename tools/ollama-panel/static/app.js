@@ -2,8 +2,8 @@ const $ = s => document.querySelector(s);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const api = (p, body, method) => fetch('/api' + p, body !== undefined || method ? {method: method || 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})} : undefined).then(r => r.json());
-const S = { id: null, mode: localStorage.mode2 === 'chat' ? 'chat' : 'agent', busy: false, cur: null, tools: {} };
-const ICONS = {bash: '›_', read_file: '📄', write_file: '✏️', list_dir: '📁', web_search: '🔎', web_fetch: '🌐'};
+const S = { id: null, mode: ['chat', 'research'].includes(localStorage.mode2) ? localStorage.mode2 : 'agent', busy: false, cur: null, tools: {} };
+const ICONS = {bash: '›_', read_file: '📄', write_file: '✏️', list_dir: '📁', describe_image: '👁', web_search: '🔎', web_fetch: '🌐'};
 
 function toast(t) { const x = $('#toast'); x.textContent = t; x.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => x.hidden = true, 3500); }
 const fmtT = s => `${Math.floor(s / 3600)} h ${String(Math.floor(s % 3600 / 60)).padStart(2, '0')} min`;
@@ -36,14 +36,21 @@ function empty() {
   thread.innerHTML = '';
   const e = el('div', 'empty', '<h2>¿Qué construimos hoy?</h2><div>El agente ejecuta comandos reales en el pod, edita archivos y sube todo a GitHub.</div>');
   const s = el('div', 'sugg');
-  for (const t of ['Clona o actualiza el repo y ejecuta las pruebas', 'Muéstrame el estado de la GPU y de Ollama', 'Lista los archivos de pod-work y resume el proyecto'])
+  for (const t of ['Analiza el repositorio y dime qué falta por hacer', 'Crea un script en Python con pruebas que valide una lista de proxies', 'Muéstrame el estado de la GPU y de Ollama'])
     { const b = el('button', null, t); b.onclick = () => send(t); s.append(b); }
   e.append(s); thread.append(e);
 }
-function userMsg(t) { thread.append(el('div', 'msg user', esc(t))); bottom(); }
+function userMsg(t, atts) {
+  const m = el('div', 'msg user');
+  if (atts && atts.length) { const w = el('div', 'atts');
+    for (const a of atts) w.append(a.kind === 'image' ? el('img', null, '') : el('span', 'f', '📄 ' + esc(a.name)));
+    atts.forEach((a, i) => { if (a.kind === 'image') w.children[i].src = a.url || ('/api/file?path=' + encodeURIComponent(a.path)); });
+    m.append(w); }
+  if (t) m.append(document.createTextNode(t));
+  thread.append(m); bottom(); }
 function botMsg() { const m = el('div', 'msg bot'); thread.append(m); return m; }
 function toolCard(parent, id, name, args) {
-  const summ = name === 'bash' ? args.command : (args.path || args.query || args.url || '');
+  const summ = name === 'bash' ? args.command : (args.path || args.query || args.url || '').split('/').pop();
   const d = el('details', 'tool');
   d.innerHTML = `<summary><span class="ic">${ICONS[name] || '🔧'}</span><span class="nm">${esc(name)}</span><span class="arg">${esc(summ || '')}</span><span class="st run">ejecutando…</span></summary>`;
   if (name === 'write_file') d.append(el('pre', 'out', esc(args.content || '')));
@@ -64,7 +71,7 @@ function approval(id, name, args) {
 }
 function finishText(raw, stats, parent) {
   if (!raw.trim()) return null;
-  const t = md(raw); parent.append(t);
+  const t = md(raw.replace(/<\/?tool_call>/g, '')); parent.append(t);
   if (stats && stats.tokens) parent.append(el('div', 'stats', `${stats.tokens} tokens${stats.tps ? ' · ' + stats.tps + ' tokens/s' : ''}`));
   return t;
 }
@@ -78,7 +85,7 @@ function render(conv) {
     if (m.hidden) continue;
     if (m.role === 'user') {
       if (m.shell) { const p = botMsg(); toolCard(p, 'h' + Math.random(), 'bash', {command: m.shell.cmd}); const k = Object.keys(S.tools).pop(); toolDone(k, m.shell.code === 0, m.shell.output); }
-      else userMsg(m.display || m.content);
+      else userMsg(m.attachments ? (m.display || '') : (m.display || m.content), m.attachments);
     } else if (m.role === 'assistant') {
       const p = botMsg(); finishText(m.content || '', m.stats, p);
       for (const c of m.tool_calls || []) { const f = c.function, d = toolCard(p, c.id, f.name, f.arguments || {}); d.dataset.name = f.name; const r = results[c.id]; if (r) toolDone(c.id, r.ok !== false, r.content); }
@@ -88,21 +95,58 @@ function render(conv) {
   scroller.scrollTop = scroller.scrollHeight;
 }
 
+// ---------- adjuntos
+S.files = [];
+const fmtSz = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+function drawTray() {
+  const t = $('#tray'); t.innerHTML = ''; t.hidden = !S.files.length;
+  S.files.forEach((f, i) => {
+    const c = el('div', 'chipf' + (f.state === 'up' ? ' up' : f.state === 'err' ? ' err' : ''));
+    if (f.kind === 'image') c.append(el('img', null, '')), c.firstChild.src = f.url;
+    c.append(el('div', null, `<div class="nm">${esc(f.name)}</div><div class="sz">${f.state === 'err' ? esc(f.msg) : f.state === 'up' ? 'subiendo…' : fmtSz(f.size)}</div>`));
+    const x = el('button', null, '✕'); x.onclick = () => { S.files.splice(i, 1); drawTray(); }; c.append(x); t.append(c);
+  });
+}
+async function addFiles(list) {
+  for (const file of list) {
+    const kind = /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name) || file.type.startsWith('image/') ? 'image' : 'file';
+    const name = file.name && file.name !== 'image.png' ? file.name : `captura-${Date.now()}.png`;
+    const f = {name, size: file.size, kind, state: 'up', url: kind === 'image' ? URL.createObjectURL(file) : null};
+    S.files.push(f); drawTray();
+    try {
+      const r = await (await fetch('/api/upload?name=' + encodeURIComponent(name), {method: 'POST', body: file})).json();
+      if (r.error) throw new Error(r.error);
+      Object.assign(f, {path: r.path, kind: r.kind === 'image' ? 'image' : r.kind, state: 'ok'});
+    } catch (e) { f.state = 'err'; f.msg = e.message; }
+    drawTray();
+  }
+}
+$('#attach').onclick = () => $('#fileInp').click();
+$('#fileInp').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
+$('#input').addEventListener('paste', e => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); addFiles(fs); } });
+['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); $('.composer').classList.add('drop'); } }));
+['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { if (ev === 'drop' || e.target === document.documentElement || !e.relatedTarget) $('.composer').classList.remove('drop'); }));
+document.addEventListener('drop', e => { if (e.dataTransfer?.files?.length) { e.preventDefault(); addFiles([...e.dataTransfer.files]); } });
+
 // ---------- envío y streaming
 function setBusy(b) { S.busy = b; $('#send').hidden = b; $('#stop').hidden = !b; $('#input').disabled = b; if (!b) $('#input').focus(); }
 async function send(text) {
-  text = (text ?? $('#input').value).trim(); if (!text || S.busy) return;
+  text = (text ?? $('#input').value).trim();
+  const atts = text.startsWith('!') ? [] : S.files.filter(f => f.state === 'ok');
+  if ((!text && !atts.length) || S.busy) return;
+  if (S.files.some(f => f.state === 'up')) { toast('Espera a que terminen de subir los archivos'); return; }
   if (!S.id) { const c = await api('/conversations', {}); S.id = c.id; }
   $('#input').value = ''; autosize();
   if (thread.querySelector('.empty')) thread.innerHTML = '';
-  if (!text.startsWith('!')) userMsg(text);
+  if (!text.startsWith('!')) userMsg(text, atts);
+  S.files = S.files.filter(f => f.state === 'err' && false); drawTray();
   setBusy(true);
   let parent = botMsg(), raw = '', live = null, typing = el('div', 'typing', '<i></i><i></i><i></i>');
   parent.append(typing);
   const flush = (stats) => { if (live) { live.remove(); live = null; } finishText(raw, stats, parent); raw = ''; };
   try {
     const res = await fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: S.id, message: text, mode: S.mode, model: $('#modelSel').value, send_output: $('#sendOut').checked, auto_push: $('#autoPush').checked})});
+      body: JSON.stringify({id: S.id, message: text, attachments: atts.map(f => ({name: f.name, path: f.path, kind: f.kind})), mode: S.mode, model: $('#modelSel').value, send_output: $('#sendOut').checked, auto_push: $('#autoPush').checked})});
     const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
     while (true) {
       const {value, done} = await rd.read(); if (done) break;
@@ -140,7 +184,7 @@ async function loadStatus() {
   const o = s.ollama; $('#dOllama').className = 'dot ' + (o.up ? 'ok' : 'bad'); $('#tOllama').textContent = o.up ? 'Responde' : 'Caído';
   $('#loadedTxt').textContent = o.loaded ? `${o.loaded.name} · ${o.loaded.gb} GB` : 'ninguno';
   const sel = $('#modelSel'), ms = o.models || [s.model];
-  if (sel.dataset.sig !== ms.join()) { sel.dataset.sig = ms.join(); const keep = localStorage.model || s.model; sel.innerHTML = ms.map(x => `<option>${esc(x)}</option>`).join(''); sel.value = ms.includes(keep) ? keep : (ms.includes(s.model) ? s.model : ms[0]); } $('#tpsTxt').textContent = s.tps ? s.tps + ' tokens/s' : '—';
+  if (sel.dataset.sig !== ms.join()) { sel.dataset.sig = ms.join(); const keep = localStorage.model || s.model; sel.innerHTML = ms.map(x => `<option>${esc(x)}</option>`).join(''); sel.value = ms.includes(keep) ? keep : (ms.includes(s.model) ? s.model : ms[0]); } $('#tpsTxt').textContent = s.tps ? s.tps + ' tokens/s' : '—'; $('#searchTxt').textContent = s.search ? 'Completa' : 'Limitada';
   const g = s.gpu; $('#dGpu').className = 'dot ' + (g ? 'ok' : 'bad');
   if (g) { $('#gpuName').textContent = g.name; $('#gpuUtil').textContent = g.util + ' %'; $('#vramBar').style.width = g.mem_used / g.mem_total * 100 + '%';
     $('#vramTxt').textContent = `${(g.mem_used / 1024).toFixed(1)} de ${(g.mem_total / 1024).toFixed(1)} GB`; $('#tempTxt').textContent = g.temp + ' °C'; }
@@ -171,9 +215,13 @@ $('#btnPush').onclick = async () => { $('#btnPush').disabled = true; const r = a
 $('#btnPull').onclick = async () => { const r = await api('/git/pull', {}); $('#ghMsg').textContent = r.msg || ''; toast(r.ok ? '✔ Traído de GitHub' : 'Error al traer'); loadStatus(); };
 $('#btnToken').onclick = () => $('#tokenDlg').showModal();
 $('#tokenSave').onclick = async () => { await api('/git/token', {token: $('#tokenInp').value}); $('#tokenInp').value = ''; toast('Token guardado en el pod'); loadStatus(); };
+$('#btnSearchKey').onclick = () => $('#searchDlg').showModal();
+$('#searchSave').onclick = async () => { await api('/search/key', {key: $('#searchInp').value}); $('#searchInp').value = ''; toast('Clave de búsqueda guardada'); loadStatus(); };
 document.querySelectorAll('#modeSeg button').forEach(b => { b.onclick = () => { S.mode = b.dataset.mode; localStorage.mode2 = S.mode; paintMode(); }; });
 function paintMode() { document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode)); $('#autoPush').disabled = S.mode === 'chat';
-  $('#input').placeholder = S.mode === 'chat' ? 'MODO CHAT: el modelo solo conversa, NO ejecuta nada. Cambia a Agente para que actúe.' : 'Dile al agente qué hacer…  ·  !comando se ejecuta en el pod  ·  /leer URL';
+  $('#input').placeholder = {chat: 'MODO CHAT: el modelo solo conversa, NO ejecuta nada. Cambia a Agente para que actúe.',
+    research: 'Describe qué investigar. El agente buscará, leerá varias fuentes y escribirá un informe con citas en pod-work/investigaciones…',
+    agent: 'Dile al agente qué hacer…  ·  !comando se ejecuta en el pod  ·  /leer URL'}[S.mode];
   $('.composer').style.borderColor = S.mode === 'chat' ? 'var(--warn)' : ''; }
 $('#modelSel').onchange = e => { localStorage.model = e.target.value; };
 paintMode(); empty(); loadStatus(); loadConvs(); setInterval(loadStatus, 8000);

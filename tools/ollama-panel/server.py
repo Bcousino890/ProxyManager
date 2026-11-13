@@ -27,22 +27,49 @@ WORKDIR = Path(os.environ.get("PANEL_WORKDIR", REPO / "pod-work"))
 BRANCH = os.environ.get("PANEL_BRANCH", "pod-sync")
 HOURLY = float(os.environ.get("POD_HOURLY_USD", "0.245"))
 LIMIT_H = float(os.environ.get("POD_LIMIT_H", "3"))
-NUM_CTX = int(os.environ.get("PANEL_NUM_CTX", "16384"))
+NUM_CTX = int(os.environ.get("PANEL_NUM_CTX", "24576"))
 MAX_STEPS = int(os.environ.get("PANEL_MAX_STEPS", "25"))
+RESEARCH_STEPS = int(os.environ.get("PANEL_RESEARCH_STEPS", "45"))
 WORKDIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR = WORKDIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+VISION_MODEL = os.environ.get("PANEL_VISION_MODEL", "qwen2.5vl:7b")
+MAX_UPLOAD = 30 * 1024 * 1024
+IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
+TEXT_EXT = (".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".toml", ".ini", ".log", ".py", ".js", ".ts", ".html", ".css", ".sh", ".sql", ".xml", ".env.example", ".cfg", ".java", ".go", ".rs", ".c", ".cpp", ".h")
 
-SYSTEM = f"""Eres un agente de programación que trabaja DENTRO de un pod Linux con GPU. Respondes en español.
-Tienes herramientas reales: bash, read_file, write_file, list_dir, web_search y web_fetch (acceso a internet). Tu directorio de trabajo es {WORKDIR}. Eres el agente: cuando el usuario pide algo, lo haces tú con las herramientas, sin pedirle que ejecute nada.
-Reglas:
-- SÍ tienes internet y SÍ puedes ejecutar comandos: nunca digas que no tienes acceso ni que no puedes; usa la herramienta.
-- Si no sabes algo o puede haber cambiado (versiones, APIs, documentación), compruébalo en internet antes de responder. web_search solo cubre GitHub, Wikipedia, Stack Overflow y Hacker News; para la última versión de un proyecto usa web_fetch con https://api.github.com/repos/DUEÑO/REPO/releases/latest (campo tag_name); para documentación usa web_fetch con la URL directa.
-- Actúa, no supongas. Si necesitas saber algo del entorno, ejecútalo con una herramienta y lee la salida real.
-- Nunca inventes salidas de comandos ni digas "ejecuta esto y dime el resultado": ejecútalo tú.
-- Haz los pasos uno a uno; tras cada herramienta lee el resultado y decide el siguiente paso.
-- Verifica tu trabajo (ejecuta el programa o las pruebas) antes de dar por terminada una tarea.
-- El proyecto del usuario ya está clonado en {REPO}: para analizarlo léelo ahí, NO lo vuelvas a clonar. Lo que crees nuevo va en {WORKDIR}.
-- Todo lo que crees o modifiques debe quedar dentro de {WORKDIR}; el panel lo guarda en GitHub (rama {BRANCH}) al terminar.
-- Nunca escribas secretos ni tokens en archivos. Sé breve en el texto final: qué hiciste y qué comprobaste."""
+SYSTEM_BASE = f"""Eres un agente que trabaja DENTRO de un pod Linux con GPU, con herramientas reales: bash, read_file, write_file, list_dir, web_search, web_fetch (acceso a internet) y describe_image (ver imágenes). Los archivos que sube el usuario quedan en {UPLOAD_DIR}. Tu directorio de trabajo es {WORKDIR}.
+IDIOMA: responde SIEMPRE en español, aunque el usuario escriba en inglés, las fuentes estén en inglés o el código tenga comentarios en inglés (traduce lo que cites). No traduzcas identificadores, comandos ni nombres de archivos.
+Reglas generales:
+- Eres el agente: cuando el usuario pide algo, lo haces tú con las herramientas. Nunca le pidas que ejecute algo por ti ni inventes salidas de comandos.
+- SÍ tienes internet y SÍ puedes ejecutar comandos: nunca digas que no puedes; usa la herramienta.
+- Actúa, no supongas: si necesitas saber algo del entorno, ejecútalo y lee la salida real. Tras cada herramienta lee el resultado y decide el siguiente paso.
+- El proyecto del usuario ya está clonado en {REPO}: para analizarlo léelo ahí, NO lo vuelvas a clonar. Lo que crees nuevo va en {WORKDIR}; el panel lo guarda en GitHub (rama {BRANCH}) al terminar.
+- Nunca escribas secretos ni tokens en archivos. Si algo falla, lee el error, corrígelo y reintenta; no lo ocultes.
+- Texto final breve y concreto: qué hiciste, qué comprobaste y qué queda pendiente."""
+
+SYSTEM_CODE = """
+MODO PROGRAMACIÓN — trabaja como un ingeniero senior:
+1. Antes de escribir, lee el código y las convenciones existentes y haz un plan de 3-5 líneas.
+2. Estructura de proyecto real (Python): pod-work/NOMBRE/ con README.md (qué hace, instalar, ejecutar, probar), pyproject.toml, src/NOMBRE/__init__.py + módulos, y tests/ al mismo nivel que src/. Instala con `pip install -e .` dentro de un venv (.venv) y ejecuta `pytest`. NUNCA pongas el código del paquete suelto en la raíz del proyecto.
+3. Calidad: nombres claros, funciones pequeñas con una sola responsabilidad, type hints, docstrings breves, manejo explícito de errores, validación de entradas, sin secretos ni rutas fijas, sin código muerto ni duplicado.
+4. Pruebas: escribe pruebas con pytest (casos normales, bordes y errores) y EJECÚTALAS. Si faltan dependencias, crea un venv (python3 -m venv .venv && .venv/bin/pip install ...) en la carpeta del proyecto. Itera hasta que todo pase.
+5. Ejecuta el programa de verdad y comprueba el resultado antes de decir que está listo. NUNCA afirmes que algo funciona o que las pruebas pasan si la última salida real dice lo contrario: informa del resultado tal cual.
+6. En código existente haz cambios mínimos y coherentes con su estilo; no reescribas lo que funciona.
+7. Para APIs, versiones o documentación que no conozcas con certeza, compruébalo en internet (web_fetch a la documentación oficial) en lugar de adivinar."""
+
+SYSTEM_RESEARCH = """
+MODO INVESTIGACIÓN PROFUNDA — sigue este protocolo:
+1. Descompón la pregunta en 3-6 subpreguntas concretas.
+2. Para cada una, lanza varias web_search con formulaciones distintas (en español y en inglés).
+3. Abre con web_fetch al menos 4 fuentes distintas, priorizando las primarias (documentación oficial, papers, repositorios, normativa) sobre blogs. Lee el contenido: no cites una página que no hayas abierto.
+4. Contrasta fuentes. Señala contradicciones, fechas, y qué es dato y qué es opinión. Si no encuentras algo, dilo; no rellenes huecos.
+5. Escribe el informe con write_file en pod-work/investigaciones/AAAA-MM-DD-tema.md con: resumen ejecutivo, hallazgos por subpregunta con citas numeradas [n], comparativa o recomendación si procede, límites de la investigación y lista de fuentes (título + URL).
+6. En el chat entrega un resumen de 6-10 líneas con las conclusiones clave y la ruta del informe.
+Si web_search devuelve poco (puede estar limitada a GitHub, Wikipedia, Stack Overflow, Hacker News, arXiv y OpenAlex), ve directo con web_fetch a documentación oficial, repositorios o APIs abiertas, y menciona esa limitación en el informe."""
+
+def system_for(mode):
+    return SYSTEM_BASE + (SYSTEM_RESEARCH if mode == "research" else SYSTEM_CODE if mode == "agent" else "")
 
 TOOLS = [
     {"type": "function", "function": {"name": "bash", "description": "Ejecuta un comando bash en el pod y devuelve stdout+stderr y el código de salida.",
@@ -55,6 +82,8 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "web_fetch", "description": "Descarga una URL y devuelve su texto (HTML limpiado).",
         "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
+    {"type": "function", "function": {"name": "describe_image", "description": "Mira una imagen (foto, captura, diagrama) con el modelo de visión y responde una pregunta sobre ella o la describe y transcribe su texto.",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "question": {"type": "string", "description": "Qué quieres saber de la imagen (opcional)"}}, "required": ["path"]}}},
     {"type": "function", "function": {"name": "list_dir", "description": "Lista los archivos de un directorio.",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": []}}},
 ]
@@ -190,6 +219,55 @@ def git_pull():
         return {"ok": True, "msg": "La rama aún no existe en GitHub."}
     return {"ok": code == 0, "msg": clip(out.strip(), 600)}
 
+# ---------------------------------------------------------------- visión
+def describe_image(path, question=None):
+    """Interpreta una imagen con el modelo de visión (descripción + OCR) y devuelve texto en español."""
+    p = safe_path(path)
+    raw = p.read_bytes()
+    try:   # reducir fotos grandes para que sea rápido
+        from PIL import Image
+        import io
+        im = Image.open(io.BytesIO(raw)); im.thumbnail((1568, 1568))
+        buf = io.BytesIO(); im.convert("RGB").save(buf, "JPEG", quality=88); raw = buf.getvalue()
+    except Exception:
+        pass
+    prompt = (question or "Describe esta imagen con detalle.") + (
+        "\nSi hay texto visible, transcríbelo literalmente. Si es una captura de pantalla, un error, un diagrama o código, explica qué muestra y los datos concretos "
+        "(números, nombres, mensajes). Responde SIEMPRE en español.")
+    body = json.dumps({"model": VISION_MODEL, "stream": False, "keep_alive": "30s", "options": {"temperature": 0.1, "num_ctx": 8192},
+                       "messages": [{"role": "user", "content": prompt, "images": [base64.b64encode(raw).decode()]}]}).encode()
+    try:
+        req = urllib.request.Request(OLLAMA + "/api/chat", body, {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=300) as r:
+            return json.load(r)["message"]["content"].strip()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return f"[No hay modelo de visión instalado. Ejecuta: ollama pull {VISION_MODEL}]"
+        return f"[error del modelo de visión: {e}]"
+
+def kind_of(name):
+    n = name.lower()
+    return "image" if n.endswith(IMG_EXT) else "text" if n.endswith(TEXT_EXT) else "pdf" if n.endswith(".pdf") else "file"
+
+def attachments_block(atts, emit=None):
+    """Convierte los adjuntos en texto que el modelo puede leer."""
+    out = []
+    for a in atts:
+        p = safe_path(a["path"]); name = a.get("name") or p.name; k = kind_of(p.name)
+        line = f"- {name} → {p} ({k}, {p.stat().st_size // 1024} KB)"
+        if k == "image":
+            if emit: emit({"type": "tool_start", "id": "v" + p.name, "name": "describe_image", "args": {"path": str(p)}})
+            d = describe_image(str(p))
+            if emit: emit({"type": "tool_result", "id": "v" + p.name, "ok": not d.startswith("["), "output": d})
+            line += "\n  Descripción de la imagen (modelo de visión):\n  " + d.replace("\n", "\n  ")
+        elif k == "text":
+            txt = p.read_text(errors="replace")
+            line += "\n  Contenido" + (" (primeros 6000 caracteres)" if len(txt) > 6000 else "") + ":\n```\n" + txt[:6000] + "\n```"
+        elif k == "pdf":
+            line += "\n  (PDF: extrae el texto con bash, p. ej. `pip install pypdf` y leyéndolo con Python.)"
+        out.append(line)
+    return "\n".join(out)
+
 # ---------------------------------------------------------------- herramientas del agente
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 
@@ -198,14 +276,18 @@ def _get_json(url, headers=None, data=None):
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.load(r)
 
+SEARCH_KEY_FILE = HOME / "tavily-key"
+def search_key():
+    return os.environ.get("TAVILY_API_KEY") or (SEARCH_KEY_FILE.read_text().strip() if SEARCH_KEY_FILE.exists() else "")
+
 def web_search(q, n=5):
     """Los buscadores web bloquean las IP de los pods, así que se usan APIs abiertas.
     Con TAVILY_API_KEY se usa Tavily (búsqueda web completa)."""
     import html as H, urllib.parse
     qq = urllib.parse.quote(q)
-    if os.environ.get("TAVILY_API_KEY"):
+    if search_key():
         d = _get_json("https://api.tavily.com/search", {"Content-Type": "application/json"},
-                      json.dumps({"api_key": os.environ["TAVILY_API_KEY"], "query": q, "max_results": 6}).encode())
+                      json.dumps({"api_key": search_key(), "query": q, "max_results": 8, "search_depth": "advanced"}).encode())
         return "\n".join(f"{i}. {r['title']}\n   {r['url']}\n   {r['content'][:300]}" for i, r in enumerate(d.get("results", []), 1)) or "(sin resultados)"
     clean = lambda x: H.unescape(re.sub(r"<[^>]+>", "", x or "")).strip()
     sections, errors = [], []
@@ -217,6 +299,10 @@ def web_search(q, n=5):
         "Wikipedia": lambda: [f"- {r['title']}: https://en.wikipedia.org/wiki/{urllib.parse.quote(r['title'].replace(' ', '_'))}\n  {clean(r['snippet'])[:200]}"
             for r in _get_json(f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={qq}&format=json&srlimit={n}")["query"]["search"]],
         "Stack Overflow": lambda: [f"- {clean(r['title'])} {r['link']}" for r in _get_json(f"https://api.stackexchange.com/2.3/search/advanced?q={qq}&site=stackoverflow&pagesize={n}&order=desc&sort=relevance").get("items", [])],
+        "Papers (OpenAlex)": lambda: [f"- {r['display_name']} ({r.get('publication_year')}) {r.get('doi') or r['id']}"
+            for r in _get_json(f"https://api.openalex.org/works?search={qq}&per-page=3").get("results", [])],
+        "arXiv": lambda: [f"- {clean(t)} {u}" for u, t in re.findall(r"<entry>[\s\S]*?<id>(.*?)</id>[\s\S]*?<title>([\s\S]*?)</title>",
+            urllib.request.urlopen(urllib.request.Request(f"https://export.arxiv.org/api/query?search_query=all:{qq}&max_results=3", headers={"User-Agent": "pod-panel/1.0"}), timeout=15).read().decode())],
         "Hacker News": lambda: [f"- {r.get('title') or r.get('story_title')}: {r.get('url') or 'https://news.ycombinator.com/item?id=' + r['objectID']}"
             for r in _get_json(f"https://hn.algolia.com/api/v1/search?query={qq}&hitsPerPage={n}").get("hits", []) if r.get("title") or r.get("story_title")],
     }
@@ -224,7 +310,7 @@ def web_search(q, n=5):
         try: add(title, fn())
         except Exception as e: errors.append(f"{title}: {e}")
     out = "\n\n".join(sections) or "(sin resultados)"
-    return out + "\n\n[Nota: búsqueda limitada a GitHub, Wikipedia, Stack Overflow y Hacker News. Para versiones de software usa web_fetch con https://api.github.com/repos/DUEÑO/REPO/releases/latest; para docs usa web_fetch con la URL directa.]"
+    return out + "\n\n[Nota: búsqueda limitada a GitHub, Wikipedia, Stack Overflow, Hacker News, OpenAlex y arXiv; no hay clave de búsqueda web completa (Tavily). Para versiones de software usa web_fetch con https://api.github.com/repos/DUEÑO/REPO/releases/latest; para docs usa web_fetch con la URL directa.]"
 
 def web_fetch(url):
     import html as H
@@ -260,6 +346,8 @@ def exec_tool(name, args):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(args.get("content", ""))
             return True, f"Escrito {p} ({len(args.get('content', ''))} caracteres)"
+        if name == "describe_image":
+            return True, describe_image(args.get("path", ""), args.get("question"))
         if name == "web_search":
             return True, web_search(args.get("query", ""))
         if name == "web_fetch":
@@ -300,9 +388,17 @@ def parse_text_tool_call(text):
 APPROVALS = {}   # call_id -> {"event", "ok"}
 STOPS = {}       # conv_id -> Event
 LAST_SPEED = {"tps": None}
+EN_W = set("the and is are to of with this that you for it on as be by from or an at not have has can will your which".split())
+ES_W = set("el la los las de que y en un una para con por se es no del al lo como más pero su sus esto esta este son ha han puede".split())
+def looks_english(text):
+    t = re.sub(r"```[\s\S]*?```|`[^`]*`", " ", text).lower()
+    w = re.findall(r"[a-záéíóúñü]+", t)
+    en, es = sum(x in EN_W for x in w), sum(x in ES_W for x in w)
+    return len(w) > 25 and en > es * 1.3
+CODE_EXT = (".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".c", ".cpp", ".sh", ".rb", ".php")
 
-def prep_messages(msgs):
-    out = [{"role": "system", "content": SYSTEM}]
+def prep_messages(msgs, mode="agent"):
+    out = [{"role": "system", "content": system_for(mode)}]
     n = len(msgs)
     for i, m in enumerate(msgs):
         m = {k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "tool_name")}
@@ -311,8 +407,8 @@ def prep_messages(msgs):
         out.append(m)
     return out
 
-def stream_ollama(msgs, emit, stop, model, tools=True):
-    body = json.dumps({"model": model, "messages": prep_messages(msgs), **({"tools": TOOLS} if tools else {}), "stream": True,
+def stream_ollama(msgs, emit, stop, model, tools=True, mode="agent"):
+    body = json.dumps({"model": model, "messages": prep_messages(msgs, mode), **({"tools": TOOLS} if tools else {}), "stream": True,
                        "options": {"num_ctx": NUM_CTX, "temperature": 0.2}, "keep_alive": "2h"}).encode()
     req = urllib.request.Request(OLLAMA + "/api/chat", body, {"Content-Type": "application/json"})
     content, calls, stats = "", [], {}
@@ -338,11 +434,13 @@ def agent_turn(conv, emit, stop, mode="agent", model=None):
     msgs = conv["messages"]
     seen = {}
     refused = False
-    for step in range(MAX_STEPS):
+    st = {"wrote": False, "ran": False, "nv": False, "ne": False, "fail": None, "nf": 0}
+    max_steps = RESEARCH_STEPS if mode == "research" else MAX_STEPS
+    for step in range(max_steps):
         if stop.is_set():
             emit({"type": "notice", "text": "Detenido por el usuario."}); return
         try:
-            content, calls, stats = stream_ollama(msgs, emit, stop, model, tools=(mode == "agent"))
+            content, calls, stats = stream_ollama(msgs, emit, stop, model, tools=(mode != "chat"), mode=mode)
         except Exception as e:
             emit({"type": "error", "text": f"No pude hablar con Ollama: {e}"}); return
         if mode == "chat":
@@ -354,11 +452,27 @@ def agent_turn(conv, emit, stop, mode="agent", model=None):
                 emit({"type": "clear_text"})
                 content = parsed[1]
                 if content: emit({"type": "token", "text": content})
-            if not calls and not refused and REFUSAL.search(content):
+        nudge = None
+        if not calls and content:
+            if mode != "chat" and not refused and REFUSAL.search(content):
                 refused = True
-                msgs.append({"role": "assistant", "content": content})
-                msgs.append({"role": "user", "hidden": True, "content": "Eso es incorrecto: SÍ tienes acceso a internet y a un shell mediante tus herramientas (web_search, web_fetch, bash). Úsalas ahora para hacer lo que te pedí."})
-                emit({"type": "clear_text"}); continue
+                nudge = "Eso es incorrecto: SÍ tienes acceso a internet y a un shell mediante tus herramientas (web_search, web_fetch, bash). Úsalas ahora para hacer lo que te pedí."
+            elif mode != "chat" and st["fail"] and st["nf"] < 2:
+                st["nf"] += 1
+                nudge = ("La ÚLTIMA ejecución de pruebas FALLÓ. No digas que pasaron. Salida:\n" + st["fail"][1] +
+                         "\nLee el error, corrige la causa (por ejemplo imports, estructura del paquete o instalación con pip install -e .) y vuelve a ejecutar las pruebas hasta que pasen. "
+                         "Si no puedes arreglarlo, informa honestamente del fallo.")
+            elif mode == "agent" and st["wrote"] and not st["ran"] and not st["nv"]:
+                st["nv"] = True
+                nudge = "Escribiste código pero no lo has ejecutado ni probado. Ejecútalo y/o corre sus pruebas ahora con bash y corrige lo que falle antes de dar la tarea por terminada."
+            elif looks_english(content) and not st["ne"]:
+                st["ne"] = True
+                nudge = "Debes responder SIEMPRE en español. Reescribe tu respuesta anterior en español."
+        if nudge:
+            msgs.append({"role": "assistant", "content": content, "hidden": True})
+            msgs.append({"role": "user", "hidden": True, "content": nudge})
+            emit({"type": "clear_text"}); continue
+        content = re.sub(r"</?tool_call>", "", content).strip() if not calls else content
         if calls and len(content) > 220:   # borrador de conclusión repetido mientras aún usa herramientas
             content = ""; emit({"type": "clear_text"})
         a = {"role": "assistant", "content": content, "stats": stats}
@@ -384,15 +498,22 @@ def agent_turn(conv, emit, stop, mode="agent", model=None):
                     if stop.is_set(): break
                 ok_run = APPROVALS.pop(c["id"], {}).get("ok", False) and not stop.is_set()
             key = json.dumps([name, args], sort_keys=True)
-            if ok_run and key in seen and name in ("bash", "read_file", "list_dir", "web_search", "web_fetch"):
+            if ok_run and key in seen and name in ("bash", "read_file", "list_dir", "web_search", "web_fetch", "describe_image"):
                 ok, out = True, seen[key] + "\n[AVISO: ya ejecutaste exactamente esto y el resultado es el mismo. No lo repitas: da ahora tu respuesta final al usuario.]"
             elif ok_run:
                 ok, out = exec_tool(name, args); seen[key] = out
+                if name == "write_file" and str(args.get("path", "")).endswith(CODE_EXT): st["wrote"], st["ran"] = True, False
+                if name == "bash":
+                    st["ran"] = True
+                    cmd = str(args.get("command", ""))
+                    if re.search(r"pytest|unittest|npm (run )?test|go test|cargo test|mvn test|jest|vitest", cmd):
+                        m = re.search(r"\[código de salida (\d+)\]", out)
+                        st["fail"] = (m and m.group(1) != "0") and (cmd, out[-600:]) or None
             else:
                 ok, out = False, "El usuario rechazó o no aprobó este comando. Propón una alternativa más segura."
             msgs.append({"role": "tool", "tool_name": name, "content": out, "tool_call_id": c["id"], "ok": ok})
             emit({"type": "tool_result", "id": c["id"], "ok": ok, "output": out})
-    emit({"type": "notice", "text": f"Alcancé el máximo de {MAX_STEPS} pasos. Escribe «continúa» para seguir."})
+    emit({"type": "notice", "text": f"Alcancé el máximo de {max_steps} pasos. Escribe «continúa» para seguir."})
 
 def title_from(text):
     t = re.sub(r"\s+", " ", text).strip()
@@ -427,11 +548,20 @@ class H(BaseHTTPRequestHandler):
         try:
             if path == "/api/status":
                 return self._json({"clock": pod_clock(), "gpu": gpu_info(), "ollama": ollama_info(), "git": git_info(),
-                                   "model": MODEL, "tps": LAST_SPEED["tps"]})
+                                   "model": MODEL, "search": bool(search_key()), "tps": LAST_SPEED["tps"]})
             if path == "/api/conversations":
                 items = [jload(p, {}) for p in CONV_DIR.glob("*.json")]
                 items = sorted([c for c in items if c], key=lambda c: -c.get("updated", 0))
                 return self._json([{"id": c["id"], "title": c["title"], "updated": c["updated"]} for c in items])
+            if path == "/api/file":
+                from urllib.parse import parse_qs
+                f = Path(parse_qs(urlparse(self.path).query).get("path", [""])[0]).resolve()
+                if UPLOAD_DIR.resolve() in f.parents and f.is_file():
+                    b = f.read_bytes()
+                    ct = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}.get(f.suffix.lower(), "application/octet-stream")
+                    self.send_response(200); self.send_header("Content-Type", ct); self.send_header("Content-Length", str(len(b))); self.end_headers()
+                    return self.wfile.write(b)
+                return self._json({"error": "no encontrado"}, 404)
             m = re.fullmatch(r"/api/conversations/([a-f0-9]+)", path)
             if m:
                 return self._json(jload(conv_path(m.group(1)), {"error": "no existe"}))
@@ -456,6 +586,16 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path == "/api/upload":
+                from urllib.parse import parse_qs
+                n = int(self.headers.get("Content-Length") or 0)
+                if n > MAX_UPLOAD:
+                    self.rfile.read(n) if n < 200_000_000 else None
+                    return self._json({"error": f"archivo demasiado grande (máx. {MAX_UPLOAD // 1048576} MB)"}, 413)
+                name = re.sub(r"[^\w.\-]+", "_", parse_qs(urlparse(self.path).query).get("name", ["archivo"])[0])[-80:] or "archivo"
+                dest = UPLOAD_DIR / f"{time.strftime('%Y%m%d-%H%M%S')}-{name}"
+                dest.write_bytes(self.rfile.read(n))
+                return self._json({"path": str(dest), "name": name, "kind": kind_of(name), "size": n})
             b = self._body()
             if path == "/api/conversations":
                 return self._json(new_conv())
@@ -478,6 +618,11 @@ class H(BaseHTTPRequestHandler):
                 if t: TOKEN_FILE.write_text(t); TOKEN_FILE.chmod(0o600)
                 else: TOKEN_FILE.unlink(missing_ok=True)
                 return self._json({"ok": True})
+            if path == "/api/search/key":
+                t = (b.get("key") or "").strip()
+                if t: SEARCH_KEY_FILE.write_text(t); SEARCH_KEY_FILE.chmod(0o600)
+                else: SEARCH_KEY_FILE.unlink(missing_ok=True)
+                return self._json({"ok": True})
             if path == "/api/clock/reset":
                 st = jload(STATE_FILE, {}); st["clock_reset"] = time.time(); jsave(STATE_FILE, st)
                 return self._json({"ok": True})
@@ -491,6 +636,8 @@ class H(BaseHTTPRequestHandler):
     def chat(self, b):
         conv = jload(conv_path(b["id"]), None) or new_conv()
         text, mode = (b.get("message") or "").strip(), b.get("mode", "agent")
+        if not text and not b.get("attachments"):
+            return self._json({"error": "mensaje vacío"}, 400)
         self.send_response(200)
         for k, v in {"Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "close"}.items():
             self.send_header(k, v)
@@ -504,8 +651,8 @@ class H(BaseHTTPRequestHandler):
                 stop.set()
         stop = STOPS[conv["id"]] = threading.Event()
         try:
-            if conv["title"] == "Nueva conversación" and text:
-                conv["title"] = title_from(text.lstrip("!/"))
+            if conv["title"] == "Nueva conversación" and (text or b.get("attachments")):
+                conv["title"] = title_from(text.lstrip("!/") or "Archivos adjuntos")
             run_model = True
             if text.startswith("!"):   # comando directo en el pod
                 cmd = text[1:].strip()
@@ -524,13 +671,18 @@ class H(BaseHTTPRequestHandler):
                 except Exception as e:
                     page = f"[error al leer: {e}]"
                 conv["messages"].append({"role": "user", "content": f"Contenido de {url}:\n{clip(page, 8000)}\n\n(Resume lo relevante y espera instrucciones.)", "display": text})
-            elif text:
-                conv["messages"].append({"role": "user", "content": text})
+            elif text or b.get("attachments"):
+                atts = b.get("attachments") or []
+                if atts:
+                    block = attachments_block(atts, emit)
+                    conv["messages"].append({"role": "user", "display": text, "content": (text or "Analiza los archivos adjuntos.") + "\n\n[Archivos adjuntos]\n" + block, "attachments": atts})
+                else:
+                    conv["messages"].append({"role": "user", "content": text})
             if run_model:
                 agent_turn(conv, emit, stop, mode, b.get("model") or MODEL)
             conv["updated"] = time.time(); jsave(conv_path(conv["id"]), conv)
             emit({"type": "title", "title": conv["title"], "id": conv["id"]})
-            if mode == "agent" and not stop.is_set() and b.get("auto_push", True):
+            if mode in ("agent", "research") and not stop.is_set() and b.get("auto_push", True):
                 g = git_save("pod: " + conv["title"])
                 if g.get("committed") or not g.get("ok"):
                     emit({"type": "git", **g})

@@ -28,6 +28,7 @@
       <div class="row small"><span class="muted">Temperatura</span><b id="tempTxt">—</b></div>
       <div class="row small"><span class="muted">Modelo cargado</span><b id="loadedTxt">—</b></div>
       <div class="row small"><span class="muted">Velocidad</span><b id="tpsTxt">—</b></div>
+      <div class="row small"><span class="muted">Búsqueda web</span><b id="searchTxt">—</b> <button class="link" id="btnSearchKey" title="Configurar búsqueda web completa">⚙</button></div>
     </section>
 
     <section class="block">
@@ -55,6 +56,7 @@
       <div class="top-right">
         <div class="seg" id="modeSeg" role="group" aria-label="Modo">
           <button data-mode="agent" class="on" title="El modelo ejecuta herramientas en el pod y sube a GitHub">Agente</button>
+          <button data-mode="research" title="Investigación profunda: busca, lee varias fuentes y escribe un informe con citas">Investigar</button>
           <button data-mode="chat" title="Solo conversación, sin herramientas">Chat</button>
         </div>
         <select class="chip" id="modelSel" title="Modelo"></select>
@@ -65,8 +67,11 @@
 
     <footer class="composer-wrap">
       <div class="composer">
+        <div class="tray" id="tray" hidden></div>
         <textarea id="input" rows="1" placeholder="Dile al agente qué hacer…  ·  !comando se ejecuta en el pod  ·  /leer URL"></textarea>
         <div class="comp-bar">
+          <button class="btn ghost attach" id="attach" title="Adjuntar archivos o fotos (también puedes arrastrar o pegar)">📎</button>
+          <input type="file" id="fileInp" multiple hidden>
           <label class="check"><input type="checkbox" id="sendOut" checked> Enviar salida al modelo</label>
           <label class="check"><input type="checkbox" id="autoPush" checked> Subir a GitHub al terminar</label>
           <span class="grow"></span>
@@ -84,6 +89,14 @@
     <p class="muted small">Token con permiso <code>repo</code> (o fine-grained con «Contents: write») para subir la rama del pod. Se guarda solo en este pod (<code>~/.pod-panel/github-token</code>, permisos 600) y nunca en el repositorio.</p>
     <input type="password" id="tokenInp" placeholder="ghp_… / github_pat_…" autocomplete="off">
     <div class="btns"><button class="btn" value="cancel">Cancelar</button><button class="btn primary" id="tokenSave" value="ok">Guardar</button></div>
+  </form>
+</dialog>
+<dialog id="searchDlg">
+  <form method="dialog">
+    <h3>Búsqueda web completa</h3>
+    <p class="muted small">Google, Bing y DuckDuckGo bloquean las IP de los pods. Con una clave gratuita de <b>Tavily</b> (1.000 búsquedas al mes en <a class="link" target="_blank" rel="noopener" href="https://app.tavily.com">app.tavily.com</a>) el agente busca en toda la web. Se guarda solo en este pod (<code>~/.pod-panel/tavily-key</code>).</p>
+    <input type="password" id="searchInp" placeholder="tvly-…" autocomplete="off">
+    <div class="btns"><button class="btn" value="cancel">Cancelar</button><button class="btn primary" id="searchSave" value="ok">Guardar</button></div>
   </form>
 </dialog>
 <div class="toast" id="toast" hidden></div>

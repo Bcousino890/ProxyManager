@@ -3,10 +3,11 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "validador-proxies"
+name = "validador_proxies"
 version = "0.1.0"
 description = "Validador de proxies en formato host:puerto:usuario:clave"
 authors = [{name = "Usuario", email = "usuario@example.com"}]
+license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
@@ -17,4 +18,4 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/usuario/validador-proxies"
+Homepage = "https://github.com/usuario/validador_proxies"
