@@ -3,7 +3,7 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const api = (p, body, method) => fetch('/api' + p, body !== undefined || method ? {method: method || 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})} : undefined).then(r => r.json());
 const S = { id: null, mode: ['chat', 'research'].includes(localStorage.mode2) ? localStorage.mode2 : 'agent', busy: false, cur: null, tools: {} };
-const ICONS = {bash: '›_', read_file: '📄', write_file: '✏️', list_dir: '📁', notify: '🔔', describe_image: '👁', web_search: '🔎', web_fetch: '🌐'};
+const ICONS = {edit_file: '🩹', search_files: '🔍', git_status: '🌿', git_diff: '±', git_commit: '✔', git_push: '⬆', run_tests: '🧪', proc_start: '▶', proc_inspect: '⚙', inspect_logs: '📜', plan: '🗂', project_init: '📦', memory_update: '🧠', bash: '›_', read_file: '📄', write_file: '✏️', list_dir: '📁', notify: '🔔', describe_image: '👁', web_search: '🔎', web_fetch: '🌐'};
 
 function toast(t) { const x = $('#toast'); x.textContent = t; x.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => x.hidden = true, 3500); }
 const fmtT = s => `${Math.floor(s / 3600)} h ${String(Math.floor(s % 3600 / 60)).padStart(2, '0')} min`;
@@ -55,7 +55,7 @@ function userMsg(t, atts) {
   thread.append(m); bottom(); }
 function botMsg() { const m = el('div', 'msg bot'); thread.append(m); return m; }
 function toolCard(parent, id, name, args) {
-  const summ = name === 'bash' ? args.command : (args.path || args.query || args.url || '').split('/').pop();
+  const summ = name === 'bash' ? args.command : (args.command || args.path || args.query || args.url || args.pattern || args.message || args.name || args.action || '').toString().split('/').pop();
   const d = el('details', 'tool');
   d.innerHTML = `<summary><span class="ic">${ICONS[name] || '🔧'}</span><span class="nm">${esc(name)}</span><span class="arg">${esc(summ || '')}</span><span class="st run">ejecutando…</span></summary>`;
   if (name === 'write_file') d.append(el('pre', 'out', esc(args.content || '')));
@@ -82,8 +82,9 @@ function finishText(raw, stats, parent) {
 }
 
 // ---------- cargar conversación guardada
-function render(conv) {
+function render(conv, base) {
   thread.innerHTML = ''; S.tools = {}; $('#title').textContent = conv.title;
+  if (base != null) conv = {...conv, messages: conv.messages.slice(0, base)};
   if (!conv.messages.length) return empty();
   const results = {}; conv.messages.forEach(m => { if (m.role === 'tool') results[m.tool_call_id] = m; });
   for (const m of conv.messages) {
@@ -153,24 +154,23 @@ document.addEventListener('drop', e => { if (e.dataTransfer?.files?.length) { e.
 
 // ---------- envío y streaming
 function setBusy(b) { S.busy = b; $('#send').hidden = b; $('#stop').hidden = !b; $('#input').disabled = b; if (!b) $('#input').focus(); }
-async function send(text) {
+async function send(text, opts = {}) {
   text = (text ?? $('#input').value).trim();
-  const atts = text.startsWith('!') ? [] : S.files.filter(f => f.state === 'ok');
-  if ((!text && !atts.length) || S.busy) return;
+  const atts = text.startsWith('!') || opts.attach ? [] : S.files.filter(f => f.state === 'ok');
+  if ((!text && !atts.length && !opts.resume && !opts.attach) || S.busy) return;
   if (S.files.some(f => f.state === 'up')) { toast('Espera a que terminen de subir los archivos'); return; }
   if (!S.id) { const c = await api('/conversations', {}); S.id = c.id; }
-  $('#input').value = ''; autosize();
+  if (!opts.attach) { $('#input').value = ''; autosize(); }
   if (thread.querySelector('.empty')) thread.innerHTML = '';
   S.stick = true;
-  if (!text.startsWith('!')) userMsg(text, atts);
   S.files = S.files.filter(f => f.state === 'err' && false); drawTray();
   setBusy(true);
   let parent = botMsg(), raw = '', live = null, think = null, t0 = Date.now(), lastText = '', typing = el('div', 'typing', '<i></i><i></i><i></i>');
   parent.append(typing);
   const flush = (stats) => { if (live) { live.remove(); live = null; } if (raw.trim()) lastText = raw; finishText(raw, stats, parent); raw = ''; think = null; };
   try {
-    const res = await fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: S.id, think: $('#think').checked, message: text, attachments: atts.map(f => ({name: f.name, path: f.path, kind: f.kind})), mode: S.mode, model: $('#modelSel').value, send_output: $('#sendOut').checked, auto_push: $('#autoPush').checked})});
+    const res = opts.attach ? await fetch('/api/runs/' + S.id + '?from=0') : await fetch(opts.resume ? '/api/resume' : '/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: S.id, think: $('#think').checked, message: text, attachments: atts.map(f => ({name: f.name, path: f.path, kind: f.kind})), mode: S.mode, model: $('#modelSel').value, send_output: $('#sendOut').checked, auto_push: $('#autoPush').checked, budget_min: +$('#budget').value || null})});
     const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
     while (true) {
       const {value, done} = await rd.read(); if (done) break;
@@ -181,6 +181,10 @@ async function send(text) {
         switch (ev.type) {
           case 'thinking': { if (!think) { const d = el('details', 'think', '<summary>💭 Razonando…</summary>'); d.open = true; think = el('div', 'tt'); d.append(think); parent.insertBefore(d, typing.isConnected ? typing : null); }
             think.textContent += ev.text; think.scrollTop = think.scrollHeight; break; }
+          case 'user': if (!ev.replay_skip) userMsg(ev.text, (ev.atts || []).map(x => ({...x, url: null}))); break;
+          case 'status': paintAgent(ev); break;
+          case 'plan': break;
+          case 'outcome': if (ev.outcome !== 'done') toast({blocked: '⛔ Tarea BLOQUEADA', budget: '⏱ Presupuesto agotado', incomplete: '⚠ Tarea incompleta', error: '✖ Error', stopped: '■ Detenida'}[ev.outcome] || ev.outcome); break;
           case 'notify': alertUser(ev.title, ev.text); break;
           case 'token': if (!live) { live = el('div', 'text'); parent.append(live); } raw += ev.text; live.textContent = raw; break;
           case 'clear_text': raw = ''; live?.remove(); live = null; break;
@@ -191,7 +195,7 @@ async function send(text) {
           case 'notice': thread.append(el('div', 'notice', esc(ev.text))); break;
           case 'error': thread.append(el('div', 'notice err', esc(ev.text))); break;
           case 'title': $('#title').textContent = ev.title; loadConvs(); break;
-          case 'git': toast(ev.pushed ? '✔ Subido a GitHub' : (ev.msg || 'Guardado localmente')); $('#ghMsg').textContent = ev.msg || ''; break;
+          case 'git': toast(ev.pushed ? '✔ Subido y verificado en GitHub' : (ev.msg || 'Guardado localmente')); $('#ghMsg').textContent = ev.msg || ''; break;
         }
         bottom();
       }
@@ -201,6 +205,24 @@ async function send(text) {
   setBusy(false); loadStatus(); loadConvs();
   if (Date.now() - t0 > 8000 || document.hidden) alertUser('Tarea terminada', lastText.replace(/[#*`]/g, '').trim().split('\n')[0]);
 }
+
+// ---------- barra de estado del agente
+const fmtM = s => s == null ? '∞' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+function paintAgent(s, status) {
+  const bar = $('#agentbar'); if (!s || !s.phase) { bar.hidden = true; return; }
+  bar.hidden = false;
+  $('#abPhase').textContent = (status && status !== 'running' ? ({done: '✔ terminado', blocked: '⛔ BLOQUEADO', budget: '⏱ presupuesto agotado', incomplete: '⚠ incompleto', interrupted: '↻ interrumpido', error: '✖ error', stopped: '■ detenido'})[status] + ' · ' : '') + (s.phase || '');
+  const cur = s.task || ''; $('#abTask').textContent = cur ? ' · ' + (cur.length > 60 ? cur.slice(0, 60) + '…' : cur) : '';
+  const el_ = s.elapsed ?? s.elapsed_total; $('#abTime').textContent = `transcurrido ${fmtM(el_)}` + (s.remaining != null ? ` · restan ${fmtM(s.remaining)}` : '');
+  const c = s.counts || {calls: s.calls, valid: s.valid, invalid: s.invalid, errors: s.errors}, n = c.calls || 0;
+  const items = [['Llamadas', n], ['Válidas', n ? Math.round((n - (c.invalid || 0)) / n * 100) + ' %' : '—'], ['Errores', c.errors || 0], ['Archivos', s.n_files ?? (s.files || []).length],
+    ['Pruebas', s.last_test ? (s.last_test.ok ? '✔ ' : '✖ ') + s.last_test.summary : '—'], ['Contexto', s.ctx ? Math.round(s.ctx / 327.68) + ' % (compact. ' + (s.compactions || 0) + ')' : '—'], ['Tokens/s', s.tps || '—'], ['Estancamiento', (s.strikes || 0) + '/4']];
+  $('#abGrid').innerHTML = items.map(([k, v]) => `<div><span class="muted">${k}</span> <b>${esc(v)}</b></div>`).join('');
+  const L = {pending: 'PENDIENTE', running: 'EJECUTANDO', done: 'COMPLETADO', failed: 'FALLIDO', blocked: 'BLOQUEADO'};
+  $('#abTasks').innerHTML = (s.tasks || []).map((t, i) => `<li class="st-${L[t.status]}">${i + 1}. [${L[t.status]}] ${esc(t.text)}${t.evidence ? ` <span class="muted">— ${esc(t.evidence.slice(0, 80))}</span>` : ''}</li>`).join('');
+  $('#abResume').hidden = !(['interrupted', 'blocked', 'incomplete', 'budget', 'stopped'].includes(status) && !S.busy);
+}
+$('#abResume').onclick = () => send('', {resume: true});
 
 // ---------- estado y conversaciones
 async function loadStatus() {
@@ -212,12 +234,12 @@ async function loadStatus() {
   const o = s.ollama; $('#dOllama').className = 'dot ' + (o.up ? 'ok' : 'bad'); $('#tOllama').textContent = o.up ? 'Responde' : 'Caído';
   $('#loadedTxt').textContent = o.loaded ? `${o.loaded.name} · ${o.loaded.gb} GB` : 'ninguno';
   const sel = $('#modelSel'), ms = o.models || [s.model];
-  if (sel.dataset.sig !== ms.join()) { sel.dataset.sig = ms.join(); const keep = localStorage.model || s.model; sel.innerHTML = ms.map(x => `<option>${esc(x)}</option>`).join(''); sel.value = ms.includes(keep) ? keep : (ms.includes(s.model) ? s.model : ms[0]); } $('#tpsTxt').textContent = s.tps ? s.tps + ' tokens/s' : '—'; $('#searchTxt').textContent = s.search ? 'Completa' : 'Limitada';
+  if (sel.dataset.sig !== ms.join()) { sel.dataset.sig = ms.join(); const keep = localStorage.model || s.model; sel.innerHTML = ms.map(x => `<option>${esc(x)}</option>`).join(''); sel.value = ms.includes(keep) ? keep : (ms.includes(s.model) ? s.model : ms[0]); } $('#tpsTxt').textContent = (s.ram ? `RAM ${(s.ram.used / 1024).toFixed(0)}/${(s.ram.total / 1024).toFixed(0)} GB · ` : '') + (s.num_ctx ? `ctx ${s.num_ctx / 1024}k · ` : '') + (s.tps ? s.tps + ' tokens/s' : '—'); $('#searchTxt').textContent = s.search ? 'Completa' : 'Limitada';
   const g = s.gpu; $('#dGpu').className = 'dot ' + (g ? 'ok' : 'bad');
   if (g) { $('#gpuName').textContent = g.name; $('#gpuUtil').textContent = g.util + ' %'; $('#vramBar').style.width = g.mem_used / g.mem_total * 100 + '%';
     $('#vramTxt').textContent = `${(g.mem_used / 1024).toFixed(1)} de ${(g.mem_total / 1024).toFixed(1)} GB`; $('#tempTxt').textContent = g.temp + ' °C'; }
   const t = s.git; $('#ghRepo').textContent = t.repo || 'sin remoto'; 
-  $('#ghMeta').textContent = `rama ${t.branch} · ${t.workdir}` + (t.dirty ? ` · ${t.dirty} cambios sin subir` : '') + (t.ahead ? ` · ${t.ahead} commits pendientes` : '') + (t.token ? '' : ' · sin token');
+  $('#ghMeta').textContent = `rama ${t.branch}${t.branch !== t.target_branch ? ' (destino ' + t.target_branch + ')' : ''} @${t.head} · ${t.workdir} · ${({local: 'solo local', commit: 'commit local', push: 'subir rama'})[t.strategy]}` + (t.dirty ? ` · ${t.dirty} cambios sin subir` : '') + (t.ahead ? ` · ${t.ahead} commits pendientes` : '') + (t.token ? '' : ' · sin token');
 }
 const ago = ts => { const m = Math.floor((Date.now() / 1000 - ts) / 60); return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.floor(m / 60)} h` : new Date(ts * 1000).toLocaleDateString('es', {day: 'numeric', month: 'short'}); };
 const grpOf = ts => { const d0 = new Date(); d0.setHours(0, 0, 0, 0); const day = (d0.getTime() / 1000 - ts) / 86400;
@@ -229,9 +251,11 @@ async function loadConvs() {
   let last = '';
   for (const c of l) {
     const g = grpOf(c.updated); if (g !== last) { ul.append(el('li', 'grp', g)); last = g; }
-    const li = el('li', c.id === S.id ? 'on' : '', `<span class="t" title="${esc(c.title)}">${esc(c.title)}</span><span class="when">${ago(c.updated)}</span>`), x = el('button', null, '✕'); x.title = 'Borrar';
+    const li = el('li', c.id === S.id ? 'on' : '', `<span class="t" title="${esc(c.title)}">${esc(c.title)}</span><span class="when">${({interrupted: '↻ interrumpida · ', blocked: '⛔ bloqueada · ', running: '▶ en curso · '})[c.state] || ''}${ago(c.updated)}</span>`), x = el('button', null, '✕'); x.title = 'Borrar';
     x.onclick = async e => { e.stopPropagation(); if (confirm('¿Borrar esta conversación?')) { await api('/conversations/' + c.id, {}, 'DELETE'); if (S.id === c.id) newConv(); else loadConvs(); } };
-    li.onclick = async () => { S.id = c.id; render(await api('/conversations/' + c.id)); loadConvs(); $('#side').classList.remove('open'); };
+    li.onclick = async () => { if (S.busy) { toast('Hay una tarea en curso en la vista actual'); return; } S.id = c.id; const conv = await api('/conversations/' + c.id), r = await api('/run/' + c.id);
+      if (r.active) { render(conv, r.base); send('', {attach: true}); } else { render(conv); paintAgent(r.run ? {...r.run, ...(r.run.status === 'interrupted' || r.run.status === 'blocked' || r.run.status === 'incomplete' ? {resumable: true} : {})} : null, r.run && r.run.status); }
+      loadConvs(); $('#side').classList.remove('open'); };
     li.append(x); ul.append(li);
   }
 }
@@ -261,3 +285,9 @@ function paintMode() { document.querySelectorAll('#modeSeg button').forEach(b =>
   $('.composer').style.borderColor = S.mode === 'chat' ? 'var(--warn)' : ''; }
 $('#modelSel').onchange = e => { localStorage.model = e.target.value; };
 paintMode(); empty(); loadStatus(); loadConvs(); setInterval(loadStatus, 8000);
+
+// ---------- configuración de GitHub
+$('#btnGhCfg').onclick = async () => { const s = await api('/status'), g = s.git; $('#cfgRepo').value = g.repo; $('#cfgBranch').value = g.target_branch; $('#cfgDir').value = g.workdir; $('#cfgStrat').value = g.strategy; $('#cfgMsg').textContent = ''; $('#ghDlg').showModal(); };
+$('#cfgSave').onclick = async () => { const r = await api('/config', {repo: $('#cfgRepo').value, branch: $('#cfgBranch').value, workdir: $('#cfgDir').value, strategy: $('#cfgStrat').value}); $('#cfgMsg').textContent = r.ok ? 'Guardado.' : r.msg; if (r.ok) loadStatus(); };
+$('#cfgVerify').onclick = async () => { const r = await api('/git/verify'); $('#cfgMsg').textContent = r.remote == null ? 'No pude consultar GitHub: ' + r.msg : r.remote === '' ? `La rama ${r.branch} aún no existe en GitHub (local ${r.local.slice(0, 10)})` : `local ${r.local.slice(0, 10)} · remoto ${r.remote.slice(0, 10)} → ${r.match ? '✔ coinciden' : '✖ DIFIEREN'}`; };
+$('#cfgIntegrate').onclick = async () => { const t = prompt('Rama de destino (debe existir en GitHub, p. ej. main). Solo avance rápido, sin force:', 'main'); if (!t) return; if (!confirm(`¿Integrar la rama de trabajo en «${t}»?`)) return; const r = await api('/git/integrate', {target: t}); $('#cfgMsg').textContent = r.msg; };

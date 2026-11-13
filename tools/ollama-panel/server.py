@@ -7,10 +7,12 @@ Variables (todas opcionales):
   PANEL_MODEL=qwen3-coder:30b  PANEL_REPO=/ProxyManager  PANEL_WORKDIR=<repo>/pod-work
   PANEL_BRANCH=pod-sync  GITHUB_TOKEN=...  POD_HOURLY_USD=0.245  POD_LIMIT_H=3
 """
-import base64, json, os, re, subprocess, threading, time, uuid, urllib.request, urllib.error
+import base64, json, os, re, subprocess, sys, threading, time, uuid, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agentkit as kit
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
@@ -27,8 +29,9 @@ WORKDIR = Path(os.environ.get("PANEL_WORKDIR", REPO / "pod-work"))
 BRANCH = os.environ.get("PANEL_BRANCH", "pod-sync")
 HOURLY = float(os.environ.get("POD_HOURLY_USD", "0.245"))
 LIMIT_H = float(os.environ.get("POD_LIMIT_H", "3"))
-NUM_CTX = int(os.environ.get("PANEL_NUM_CTX", "24576"))
-MAX_STEPS = int(os.environ.get("PANEL_MAX_STEPS", "25"))
+NUM_CTX = int(os.environ.get("PANEL_NUM_CTX", "32768"))   # medido: 32k = 21,7 GB VRAM, misma velocidad que 16k/24k; 48k = 23,3 GB (sin margen)
+MAX_STEPS = int(os.environ.get("PANEL_MAX_STEPS", "400"))
+NUM_PREDICT = int(os.environ.get("PANEL_NUM_PREDICT", "8192"))
 RESEARCH_STEPS = int(os.environ.get("PANEL_RESEARCH_STEPS", "45"))
 WORKDIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = WORKDIR / "uploads"
@@ -39,21 +42,27 @@ MAX_UPLOAD = 30 * 1024 * 1024
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
 TEXT_EXT = (".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".toml", ".ini", ".log", ".py", ".js", ".ts", ".html", ".css", ".sh", ".sql", ".xml", ".env.example", ".cfg", ".java", ".go", ".rs", ".c", ".cpp", ".h")
 
-SYSTEM_BASE = f"""Eres un agente que trabaja DENTRO de un pod Linux con GPU, con herramientas reales: bash, read_file, write_file, list_dir, web_search, web_fetch (acceso a internet) y describe_image (ver imágenes) y notify (avisar al usuario). Los archivos que sube el usuario quedan en {UPLOAD_DIR}. Tu directorio de trabajo es {WORKDIR}.
+def system_base():
+    return f"""Eres un agente que trabaja DENTRO de un pod Linux con GPU, con herramientas reales: bash (con timeout y código de salida), read_file (paginado), write_file, edit_file, list_dir, search_files, git_status, git_diff, git_commit, git_push, run_tests, proc_start/proc_inspect/inspect_logs (procesos en segundo plano), plan, project_init, memory_update, web_search, web_fetch (internet), describe_image (ver imágenes) y notify. Los archivos que sube el usuario quedan en {UPLOAD_DIR}. Tu directorio de trabajo es {WORKDIR}.
 IDIOMA: responde SIEMPRE en español, aunque el usuario escriba en inglés, las fuentes estén en inglés o el código tenga comentarios en inglés (traduce lo que cites). No traduzcas identificadores, comandos ni nombres de archivos.
 Reglas generales:
 - Eres el agente: cuando el usuario pide algo, lo haces tú con las herramientas. Nunca le pidas que ejecute algo por ti ni inventes salidas de comandos.
 - SÍ tienes internet y SÍ puedes ejecutar comandos: nunca digas que no puedes; usa la herramienta.
 - Actúa, no supongas: si necesitas saber algo del entorno, ejecútalo y lee la salida real. Tras cada herramienta lee el resultado y decide el siguiente paso.
-- El proyecto del usuario ya está clonado en {REPO}: para analizarlo léelo ahí, NO lo vuelvas a clonar. Lo que crees nuevo va en {WORKDIR}; el panel lo guarda en GitHub (rama {BRANCH}) al terminar.
-- Si el usuario pide que le avises (al terminar o después de algo), usa la herramienta notify con un resumen breve; además el panel avisa solo al terminar cada tarea. Razona los pasos antes de actuar y revisa tu propio resultado antes de darlo por bueno.
-- Nunca escribas secretos ni tokens en archivos. Si algo falla, lee el error, corrígelo y reintenta; no lo ocultes.
-- Texto final breve y concreto: qué hiciste, qué comprobaste y qué queda pendiente."""
+- Ciclo de trabajo: PLANIFICAR (plan action=set con tareas pequeñas y verificables) → EJECUTAR → OBSERVAR el resultado → CORREGIR si falla → VERIFICAR con run_tests o ejecutando el programa → CONTINUAR. Marca una tarea como done SOLO con evidencia real (plan action=update, status=done, evidence=comando/prueba que lo demuestra).
+- El tiempo restante y el estado real te los da el sistema en el bloque [ESTADO REAL …] al final del último mensaje: nunca inventes el tiempo. Reserva el último tramo para pruebas, revisión de secretos, commit, push y verificación; si falta tiempo, recorta funcionalidades secundarias y entrega algo funcional.
+- Proyectos grandes: crea la carpeta con project_init (TASK/PLAN/PROGRESS/DECISIONS/TEST_RESULTS/BLOCKERS). Esos archivos sobreviven a la compactación del contexto: anota decisiones y bloqueos con memory_update. Si recibes [CONTEXTO RECUPERADO], continúa desde ahí sin repetir trabajo.
+- Lee archivos grandes por partes (read_file offset/limit) y busca con search_files antes de leer enteros. Para cambios pequeños usa edit_file, no reescribas el archivo. Servicios y procesos que no terminan: proc_start (nunca bash a pie), y revisa con inspect_logs.
+- El proyecto del usuario ya está clonado en {REPO}: para analizarlo léelo ahí, NO lo vuelvas a clonar. Lo que crees nuevo va en {WORKDIR}; el panel lo guarda en GitHub (rama {BRANCH}) al terminar. Para publicar tú: git_commit (revisa secretos) y git_push a la rama; main/master requieren aprobación del usuario; nunca force push.
+- Si repites una acción y el resultado no cambia, o el mismo error se repite, CAMBIA de estrategia: inspecciona la causa en vez de reintentar igual.
+- Si el usuario pide que le avises (al terminar o después de algo), usa la herramienta notify con un resumen breve; además el panel avisa solo al terminar cada tarea.
+- Nunca escribas secretos, tokens ni credenciales de proxies en archivos ni en commits (usa variables de entorno / .env ignorado por git). Si algo falla, lee el error, corrígelo y reintenta; no lo ocultes ni digas que funciona si la última salida real dice lo contrario.
+- Texto final breve y concreto: qué hiciste, qué comprobaste (con la evidencia) y qué queda pendiente."""
 
 SYSTEM_CODE = """
 MODO PROGRAMACIÓN — trabaja como un ingeniero senior:
 1. Antes de escribir, lee el código y las convenciones existentes y haz un plan de 3-5 líneas.
-2. Estructura de proyecto real (Python): pod-work/NOMBRE/ con README.md (qué hace, instalar, ejecutar, probar), pyproject.toml, src/NOMBRE/__init__.py + módulos, y tests/ al mismo nivel que src/. Instala con `pip install -e .` dentro de un venv (.venv) y ejecuta `pytest`. NUNCA pongas el código del paquete suelto en la raíz del proyecto.
+2. Estructura de proyecto real (Python): pod-work/NOMBRE/ con README.md (qué hace, instalar, ejecutar, probar), pyproject.toml, src/NOMBRE/__init__.py + módulos, y tests/ al mismo nivel que src/. Instala con `pip install -e .` dentro de un venv (.venv) y ejecuta run_tests. NUNCA pongas el código del paquete suelto en la raíz del proyecto.
 3. Calidad: nombres claros, funciones pequeñas con una sola responsabilidad, type hints, docstrings breves, manejo explícito de errores, validación de entradas, sin secretos ni rutas fijas, sin código muerto ni duplicado.
 4. Pruebas: escribe pruebas con pytest (casos normales, bordes y errores) y EJECÚTALAS. Si faltan dependencias, crea un venv (python3 -m venv .venv && .venv/bin/pip install ...) en la carpeta del proyecto. Itera hasta que todo pase.
 5. Ejecuta el programa de verdad y comprueba el resultado antes de decir que está listo. NUNCA afirmes que algo funciona o que las pruebas pasan si la última salida real dice lo contrario: informa del resultado tal cual.
@@ -71,29 +80,20 @@ MODO INVESTIGACIÓN PROFUNDA — sigue este protocolo:
 Si web_search devuelve poco (puede estar limitada a GitHub, Wikipedia, Stack Overflow, Hacker News, arXiv y OpenAlex), ve directo con web_fetch a documentación oficial, repositorios o APIs abiertas, y menciona esa limitación en el informe."""
 
 def system_for(mode):
-    return SYSTEM_BASE + (SYSTEM_RESEARCH if mode == "research" else SYSTEM_CODE if mode == "agent" else "")
+    return system_base() + (SYSTEM_RESEARCH if mode == "research" else SYSTEM_CODE if mode == "agent" else "")
 
-TOOLS = [
-    {"type": "function", "function": {"name": "bash", "description": "Ejecuta un comando bash en el pod y devuelve stdout+stderr y el código de salida.",
-        "parameters": {"type": "object", "properties": {"command": {"type": "string", "description": "Comando a ejecutar"}, "timeout": {"type": "integer", "description": "Segundos máximos (por defecto 120, máximo 1800)"}}, "required": ["command"]}}},
-    {"type": "function", "function": {"name": "notify", "description": "Envía un aviso al usuario (notificación del navegador). Úsala cuando el usuario pida que le avises, y al terminar una tarea larga con un resumen de una línea.",
-        "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "message": {"type": "string"}}, "required": ["message"]}}},
-    {"type": "function", "function": {"name": "read_file", "description": "Lee un archivo de texto.",
-        "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
-    {"type": "function", "function": {"name": "write_file", "description": "Crea o sobrescribe un archivo con el contenido dado.",
-        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
+LEGACY_TOOLS = [
     {"type": "function", "function": {"name": "web_search", "description": "Busca en internet y devuelve título, URL y fragmento de los primeros resultados.",
         "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "web_fetch", "description": "Descarga una URL y devuelve su texto (HTML limpiado).",
         "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
     {"type": "function", "function": {"name": "describe_image", "description": "Mira una imagen (foto, captura, diagrama) con el modelo de visión y responde una pregunta sobre ella o la describe y transcribe su texto.",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "question": {"type": "string", "description": "Qué quieres saber de la imagen (opcional)"}}, "required": ["path"]}}},
-    {"type": "function", "function": {"name": "list_dir", "description": "Lista los archivos de un directorio.",
-        "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": []}}},
 ]
+TOOLS = kit.SCHEMAS + LEGACY_TOOLS
 
 REFUSAL = re.compile(r"no (tengo|dispongo de) acceso|no puedo (acceder|ejecutar|buscar|navegar|conectarme)|no tengo la capacidad|sin acceso a internet|ejecuta (estos|este|los siguientes) comandos?", re.I)
-DANGEROUS = re.compile(r"(\brm\s+-[a-z]*r|\bmkfs|\bdd\s+if=|:\(\)\s*\{|\bshutdown|\breboot|git\s+push\s+.*(--force|-f\b)|git\s+reset\s+--hard|>\s*/dev/sd|\bchmod\s+-R\s+777\s+/|curl[^|]*\|\s*(sudo\s+)?(ba)?sh|wget[^|]*\|\s*(sudo\s+)?(ba)?sh|\bkill\s+-9\s+1\b|\bpkill\s+ollama)")
+DANGEROUS = re.compile(r"(\brm\s+-[a-z]*r|\bmkfs|\bdd\s+if=|:\(\)\s*\{|\bshutdown|\breboot|git\s+push\s+.*(--force|-f\b)|git\s+reset\s+--hard|>\s*/dev/sd|\bchmod\s+-R\s+777\s+/|curl[^|]*\|\s*(sudo\s+)?(ba)?sh|wget[^|]*\|\s*(sudo\s+)?(ba)?sh|\bkill\s+-9\s+1\b|\bpkill\s+ollama|\bollama\s+(rm|stop)\b|\bdocker\s+(system|volume|image)\s+prune|\bgit\s+clean\s+-[a-z]*f|git\s+push\b[^\n;&|]*\b(main|master)\b|git\s+branch\s+-D|\bsystemctl\s+(stop|disable)|--no-verify)")
 
 # ---------------------------------------------------------------- helpers
 def jload(p, default):
@@ -123,22 +123,55 @@ def clip(s, n=8000):
     return s if len(s) <= n else s[: n // 2] + f"\n…[{len(s) - n} caracteres omitidos]…\n" + s[-n // 2:]
 
 def safe_path(p):
-    q = Path(os.path.expanduser(p or "."))
-    q = q if q.is_absolute() else WORKDIR / q
-    q = q.resolve()
-    if REPO.resolve() not in q.parents and q != REPO.resolve() and WORKDIR.resolve() not in q.parents:
-        raise ValueError(f"ruta fuera del repositorio: {q}")
-    return q
+    return kit.safe_path(p)
 
 def token():
     return os.environ.get("GITHUB_TOKEN") or (TOKEN_FILE.read_text().strip() if TOKEN_FILE.exists() else "")
 
 def git(*args, auth=False, timeout=120):
-    cmd = ["git", "-c", "user.name=Pod Agent", "-c", "user.email=pod-agent@users.noreply.github.com"]
-    if auth and token():
-        b = base64.b64encode(f"x-access-token:{token()}".encode()).decode()
-        cmd += ["-c", "credential.helper=", "-c", f"http.extraheader=Authorization: Basic {b}"]
-    return run(cmd + list(args), cwd=REPO, timeout=timeout, env={"GIT_TERMINAL_PROMPT": "0"})
+    return kit.git(*args, auth=auth, timeout=timeout)
+
+def cfg_load():
+    return jload(STATE_FILE, {}).get("cfg", {})
+
+def apply_config(c=None):
+    """Repositorio, rama, directorio de trabajo y estrategia de publicación (persistidos en state.json)."""
+    global BRANCH, WORKDIR, UPLOAD_DIR
+    c = c if c is not None else cfg_load()
+    BRANCH = c.get("branch") or os.environ.get("PANEL_BRANCH", "pod-sync")
+    wd = c.get("workdir")
+    WORKDIR = (REPO / wd).resolve() if wd else Path(os.environ.get("PANEL_WORKDIR", REPO / "pod-work"))
+    WORKDIR.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR = WORKDIR / "uploads"; UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    kit.ENV.repo, kit.ENV.workdir, kit.ENV.branch = REPO, WORKDIR, BRANCH
+    kit.ENV.token = token; kit.ENV.home = HOME
+    kit.ENV.extra_secrets = lambda: [search_key()]
+
+def strategy():
+    return cfg_load().get("strategy", "push")   # local | commit | push
+
+def set_config(b):
+    c = cfg_load(); errs = []
+    if "branch" in b:
+        v = (b["branch"] or "").strip()
+        if not re.fullmatch(r"[\w][\w./\-]{0,60}", v) or ".." in v: errs.append("rama inválida")
+        elif v in kit.PROTECTED: errs.append("la rama de trabajo del agente no puede ser main/master; usa «Integrar» para llevar cambios a main")
+        else: c["branch"] = v
+    if "workdir" in b:
+        v = (b["workdir"] or "").strip().strip("/")
+        try:
+            p = (REPO / v).resolve()
+            if v and (REPO.resolve() == p or REPO.resolve() in p.parents) and ".git" not in p.parts: c["workdir"] = v
+            else: errs.append("directorio fuera del repositorio")
+        except Exception: errs.append("directorio inválido")
+    if b.get("strategy") in ("local", "commit", "push"): c["strategy"] = b["strategy"]
+    if b.get("repo"):
+        v = b["repo"].strip()
+        if re.fullmatch(r"[\w.\-]+/[\w.\-]+", v): git("remote", "set-url", "origin", f"https://github.com/{v}.git")
+        else: errs.append("repositorio inválido (usa dueño/nombre)")
+    if errs: return {"ok": False, "msg": "; ".join(errs)}
+    st = jload(STATE_FILE, {}); st["cfg"] = c; jsave(STATE_FILE, st); apply_config(c)
+    return {"ok": True}
 
 # ---------------------------------------------------------------- estado
 def pod_clock():
@@ -182,8 +215,10 @@ def git_info():
     _, dirty = git("status", "--porcelain", "--", str(WORKDIR))
     remote = re.sub(r"https://[^@]+@", "https://", remote.strip())
     slug = re.sub(r"^.*github\.com[:/]|\.git$", "", remote)
-    _, ahead = git("rev-list", "--count", f"origin/{BRANCH}..{BRANCH}") if git("rev-parse", "--verify", BRANCH)[0] == 0 else (1, "0")
-    return {"repo": slug, "branch": branch.strip(), "target_branch": BRANCH, "workdir": str(WORKDIR.relative_to(REPO)) if REPO in WORKDIR.parents else str(WORKDIR),
+    _, ahead = git("rev-list", "--count", f"origin/{BRANCH}..HEAD") if git("rev-parse", "--verify", f"origin/{BRANCH}")[0] == 0 else (1, "0")
+    _, head = git("rev-parse", "--short", "HEAD")
+    return {"repo": slug, "branch": branch.strip(), "target_branch": BRANCH, "head": head.strip(), "strategy": strategy(),
+            "workdir": str(WORKDIR.relative_to(REPO)) if REPO in WORKDIR.parents else str(WORKDIR),
             "dirty": len([l for l in dirty.splitlines() if l.strip()]), "ahead": int(ahead.strip() or 0) if ahead.strip().isdigit() else 0,
             "token": bool(token())}
 
@@ -198,30 +233,52 @@ def ensure_branch():
     else:
         git("checkout", "-b", BRANCH)
 
-def git_save(message, push=True):
-    """Commit de todo el workdir en la rama de sincronización y push si hay token."""
+def git_save(message, push=None):
+    """Guardar progreso según la estrategia: local (nada), commit (local) o push (rama + verificación del hash remoto).
+    Siempre revisa secretos antes de commitear y nunca usa force."""
+    strat = "push" if push is True else ("commit" if push is False else strategy())
+    if strat == "local":
+        return {"ok": True, "committed": False, "pushed": False, "msg": "Estrategia «solo local»: archivos guardados en el pod, sin commit."}
     ensure_branch()
-    git("add", "-A", "--", str(WORKDIR))
-    if git("diff", "--cached", "--quiet")[0] == 0:
-        committed = False
-    else:
-        code, out = git("commit", "-m", message[:100] + "\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>" if False else message[:100])
-        if code:
-            return {"ok": False, "msg": out.strip()}
-        committed = True
-    if not push:
-        return {"ok": True, "committed": committed, "pushed": False}
+    ok, msg = kit.commit_paths(message[:100], [str(WORKDIR)])
+    if not ok:
+        return {"ok": False, "committed": False, "pushed": False, "msg": msg}
+    committed = msg.startswith("Commit creado")
+    if strat == "commit":
+        return {"ok": True, "committed": committed, "pushed": False, "msg": msg}
     if not token():
         return {"ok": True, "committed": committed, "pushed": False, "msg": "Commit local hecho. Falta el token de GitHub para subir."}
-    code, out = git("push", "-u", "origin", BRANCH, auth=True)
-    return {"ok": code == 0, "committed": committed, "pushed": code == 0, "msg": clip(re.sub(r"https://\S+@", "https://", out.strip()), 600)}
+    r = kit.push_branch(BRANCH)
+    return {"ok": r["ok"], "committed": committed, "pushed": r["ok"], "msg": r["msg"], "remote": r.get("remote"), "local": r.get("local")}
 
 def git_pull():
     ensure_branch()
     code, out = git("pull", "--rebase", "--autostash", "origin", BRANCH, auth=True)
     if code and "couldn't find remote ref" in out:
         return {"ok": True, "msg": "La rama aún no existe en GitHub."}
-    return {"ok": code == 0, "msg": clip(out.strip(), 600)}
+    if code:
+        git("rebase", "--abort")
+    return {"ok": code == 0, "msg": kit.clip(out.strip(), 600)}
+
+def git_verify():
+    """Compara el commit local con el de la rama de trabajo en GitHub."""
+    _, head = git("rev-parse", "HEAD"); rh, err = kit.remote_hash(BRANCH)
+    return {"branch": BRANCH, "local": head.strip(), "remote": rh, "match": rh == head.strip(), "msg": err}
+
+def git_integrate(target):
+    """Lleva la rama de trabajo a otra rama (p. ej. main) SOLO si es avance rápido (sin force). La rama destino debe existir."""
+    target = (target or "main").strip()
+    if not re.fullmatch(r"[\w][\w./\-]{0,60}", target): return {"ok": False, "msg": "rama destino inválida"}
+    th, err = kit.remote_hash(target)
+    if th is None: return {"ok": False, "msg": "No pude consultar GitHub: " + err}
+    if th == "": return {"ok": False, "msg": f"La rama «{target}» no existe en GitHub. Créala tú (o elige otra): el agente no crea ramas principales."}
+    git("fetch", "origin", target, auth=True)
+    if git("merge-base", "--is-ancestor", th, "HEAD")[0] != 0:
+        return {"ok": False, "msg": f"«{target}» tiene commits que tu rama no tiene (no es avance rápido). Trae/integra primero; no se hace force push."}
+    code, out = git("push", "origin", f"HEAD:refs/heads/{target}", auth=True)
+    if code: return {"ok": False, "msg": kit.clip(out.strip(), 500)}
+    rh, _ = kit.remote_hash(target); _, head = git("rev-parse", "HEAD")
+    return {"ok": rh == head.strip(), "msg": f"{target} en GitHub = {rh[:10]} " + ("(verificado)" if rh == head.strip() else "(NO coincide)")}
 
 # ---------------------------------------------------------------- visión
 def describe_image(path, question=None):
@@ -335,39 +392,25 @@ def web_fetch(url):
 def needs_approval(name, args):
     if name == "bash":
         return bool(DANGEROUS.search(args.get("command", "")))
+    if name == "git_push":
+        return str(args.get("branch") or "").strip() in kit.PROTECTED
     return False
 
-def exec_tool(name, args):
-    try:
-        if name == "bash":
-            code, out = run(args.get("command", ""), timeout=min(int(args.get("timeout", 120)), 1800))
-            return code == 0, clip(out.strip() or "(sin salida)") + f"\n[código de salida {code}]"
-        if name == "read_file":
-            p = safe_path(args.get("path"))
-            return True, clip(p.read_text(errors="replace"), 12000)
-        if name == "write_file":
-            p = safe_path(args.get("path"))
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(args.get("content", ""))
-            return True, f"Escrito {p} ({len(args.get('content', ''))} caracteres)"
-        if name == "describe_image":
-            return True, describe_image(args.get("path", ""), args.get("question"))
-        if name == "web_search":
-            return True, web_search(args.get("query", ""))
-        if name == "web_fetch":
-            return True, clip(web_fetch(args.get("url", "")), 9000)
-        if name == "list_dir":
-            p = safe_path(args.get("path") or ".")
-            items = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name))
-            return True, "\n".join(("📁 " if i.is_dir() else "   ") + i.name for i in items[:200]) or "(vacío)"
-        return False, f"Herramienta desconocida: {name}"
-    except Exception as e:
-        return False, f"[error] {e}"
+def legacy_exec(name, args):
+    if name == "web_search":
+        return True, web_search(args.get("query", ""))
+    if name == "web_fetch":
+        return True, kit.clip(web_fetch(args.get("url", "")), 9000)
+    if name == "describe_image":
+        return True, describe_image(args.get("path", ""), args.get("question"))
+    return False, f"Herramienta desconocida: {name}. Disponibles: " + ", ".join(x["function"]["name"] for x in TOOLS)
+
+TOOL_NAMES = {x["function"]["name"] for x in TOOLS}
+FN_TAG = re.compile(r"<function=([\w\-]+)>([\s\S]*?)</function>")
+PARAM_TAG = re.compile(r"<parameter=([\w\-]+)>\s*([\s\S]*?)\s*</parameter>")
 
 def parse_text_tool_call(text):
-    """Algunos modelos escriben las llamadas como JSON en el texto (solas o tras algo de prosa).
-    Devuelve (llamadas, texto_sin_las_llamadas) o None."""
-    names = {x["function"]["name"] for x in TOOLS}
+    """Algunos modelos escriben las llamadas como JSON o como <function=…> en el texto. Devuelve (llamadas, resto) o None."""
     dec, calls, spans = json.JSONDecoder(), [], []
     for m in re.finditer(r"\{\s*\"name\"\s*:", text):
         if spans and m.start() < spans[-1][1]:
@@ -376,17 +419,25 @@ def parse_text_tool_call(text):
             o, j = dec.raw_decode(text, m.start())
         except ValueError:
             continue
-        if isinstance(o, dict) and o.get("name") in names:
+        if isinstance(o, dict) and o.get("name") in TOOL_NAMES:
             a = o.get("arguments", o.get("parameters", {}))
             calls.append({"function": {"name": o["name"], "arguments": a if isinstance(a, dict) else {}}})
             spans.append((m.start(), j))
+    for m in FN_TAG.finditer(text):
+        if m.group(1) in TOOL_NAMES:
+            calls.append({"function": {"name": m.group(1), "arguments": {k: v for k, v in PARAM_TAG.findall(m.group(2))}}})
+            spans.append((m.start(), m.end()))
     if not calls:
         return None
+    spans.sort()
     rest, last = "", 0
     for st, en in spans:
         rest += text[last:st]; last = en
     rest = re.sub(r"</?tool_call>|^```(?:json)?\s*$|^```\s*$", "", rest + text[last:], flags=re.M).strip()
     return calls, rest
+
+LOOKS_LIKE_CALL = re.compile(r"<tool_call>|<function=|\"name\"\s*:\s*\"(?:%s)\"" % "|".join(sorted(TOOL_NAMES)))
+INTENT = re.compile(r"\b(voy a|vamos a|a continuación|ahora (voy|ejecuto|creo|escribo|lanzo)|el siguiente paso es|procedo a|I will|I'll now|Let me|Next, I)\b", re.I)
 
 # ---------------------------------------------------------------- bucle agéntico
 APPROVALS = {}   # call_id -> {"event", "ok"}
@@ -401,28 +452,21 @@ def looks_english(text):
     return len(w) > 25 and en > es * 1.3
 CODE_EXT = (".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".c", ".cpp", ".sh", ".rb", ".php")
 
-def prep_messages(msgs, mode="agent"):
-    out = [{"role": "system", "content": system_for(mode)}]
-    n = len(msgs)
-    for i, m in enumerate(msgs):
-        m = {k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "tool_name")}
-        if m["role"] == "tool" and i < n - 8:
-            m["content"] = clip(m["content"], 1200)
-        out.append(m)
-    return out
-
-def stream_ollama(msgs, emit, stop, model, tools=True, mode="agent", think=False):
-    body = json.dumps({"model": model, "messages": prep_messages(msgs, mode), **({"tools": TOOLS} if tools else {}), "stream": True,
-                       "options": {"num_ctx": NUM_CTX, "temperature": 0.6 if think else 0.2}, "keep_alive": "2h", **({"think": True} if think else {})}).encode()
+def stream_ollama(view, emit, stop, model, tools=True, think=False):
+    opts = {"num_ctx": NUM_CTX, "temperature": 0.6 if think else 0.2, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05, "num_predict": NUM_PREDICT}
+    body = json.dumps({"model": model, "messages": view, **({"tools": TOOLS} if tools else {}), "stream": True,
+                       "options": opts, "keep_alive": "2h", **({"think": True} if think else {})}).encode()
     req = urllib.request.Request(OLLAMA + "/api/chat", body, {"Content-Type": "application/json"})
     content, calls, stats, thinking = "", [], {}, ""
-    with urllib.request.urlopen(req, timeout=600) as r:
+    with urllib.request.urlopen(req, timeout=300) as r:
         for line in r:
             if stop.is_set():
                 break
             if not line.strip():
                 continue
             d = json.loads(line)
+            if d.get("error"):
+                raise RuntimeError(d["error"])
             m = d.get("message", {})
             if m.get("thinking"):
                 thinking += m["thinking"]
@@ -433,100 +477,184 @@ def stream_ollama(msgs, emit, stop, model, tools=True, mode="agent", think=False
             calls += m.get("tool_calls") or []
             if d.get("done"):
                 ec, ed = d.get("eval_count", 0), d.get("eval_duration", 0)
-                stats = {"tokens": ec, "tps": round(ec / (ed / 1e9), 1) if ed else None}
+                stats = {"tokens": ec, "tps": round(ec / (ed / 1e9), 1) if ed else None, "prompt_tokens": d.get("prompt_eval_count", 0),
+                         "done_reason": d.get("done_reason")}
     stats["thinking"] = thinking
     return content, calls, stats
 
-def agent_turn(conv, emit, stop, mode="agent", model=None, think=False):
+def call_model(ag, view_fn, emit, stop, model, tools, think):
+    """Llama a Ollama con reintentos acotados. Devuelve (content, calls, stats) o None si hay que parar."""
+    last_err = None
+    for attempt in range(3):
+        if stop.is_set():
+            return None
+        try:
+            content, calls, stats = stream_ollama(view_fn(), emit, stop, model, tools, think)
+        except Exception as e:
+            last_err = e
+            if stop.is_set():
+                return None
+            if attempt < 2:
+                emit({"type": "notice", "text": f"Ollama falló ({str(e)[:120]}); reintento {attempt + 1}/2…"}); emit({"type": "clear_text"})
+                time.sleep(3 * (attempt + 1)); continue
+            raise
+        if not content.strip() and not calls and not stats.get("thinking") and not stop.is_set():
+            ag.strag.empty += 1
+            if attempt < 2:
+                emit({"type": "notice", "text": f"Respuesta vacía del modelo; reintento {attempt + 1}/2…"}); continue
+        return content, calls, stats
+    return "", [], {}
+
+def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_min=None):
+    """Controlador: PLANIFICAR → EJECUTAR → OBSERVAR → EVALUAR → CORREGIR → VERIFICAR → CONTINUAR. Devuelve el resultado:
+    done | stopped | blocked | budget | error | incomplete."""
     model = THINK_MODEL if think else (model or MODEL)
     msgs = conv["messages"]
-    seen = {}
-    refused = False
-    st = {"wrote": False, "ran": False, "nv": False, "ne": False, "fail": None, "nf": 0}
+    kit.repair_history(msgs)
+    pod_rem = max(0, LIMIT_H * 3600 - pod_clock()["seconds"])
+    ag = kit.Agent(conv, emit, stop, legacy_exec, budget_s=int(budget_min * 60) if budget_min else None, pod_remaining_s=pod_rem, mode=mode)
+    RUNS_AGENT[conv["id"]] = ag
+    first = next((m.get("display") or m["content"] for m in msgs if m["role"] == "user" and not m.get("hidden")), "")
+    if mode == "agent" and not ag.project and len(first) >= 300:
+        ag.init_project("sesion", first[:20000], session=True)
+        emit({"type": "notice", "text": f"Memoria de la tarea guardada en {ag.project} (TASK/PLAN/PROGRESS/DECISIONS/TEST_RESULTS/BLOCKERS); pasa a la carpeta del proyecto cuando el agente llame a project_init."})
+    st = {"wrote": False, "ran": False, "nv": False, "ne": False, "nf": 0, "refused": False, "intent": 0, "pend": 0, "parse": 0}
     max_steps = RESEARCH_STEPS if mode == "research" else MAX_STEPS
+    outcome = "incomplete"
+    def save(status="running"):
+        conv["run"] = {**ag.state(), "status": status, "updated": time.time(), "mode": mode}
+        conv["updated"] = time.time(); jsave(conv_path(conv["id"]), conv)
+    def hidden_user(text):
+        msgs.append({"role": "user", "hidden": True, "content": text})
+    ag.push_status(); save()
     for step in range(max_steps):
         if stop.is_set():
-            emit({"type": "notice", "text": "Detenido por el usuario."}); return
+            emit({"type": "notice", "text": "Detenido por el usuario."}); outcome = "stopped"; break
+        if mode != "chat" and ag.remaining() <= 0:
+            emit({"type": "notice", "text": "Presupuesto de tiempo agotado: se guarda el resultado parcial."}); ag.log("BLOCKERS.md", "presupuesto de tiempo agotado"); outcome = "budget"; break
+        if mode != "chat" and ag.in_reserve() and not ag.final_notified:
+            ag.final_notified = True; ag.phase = "VERIFICAR"
+            hidden_user("TIEMPO: queda poco presupuesto. FASE FINAL: no empieces funcionalidades nuevas. Ejecuta las pruebas, corrige solo lo imprescindible, revisa que no haya secretos, haz git_commit y git_push, y entrega un resultado parcial funcional.")
+        view_fn = lambda: ag.build_view(system_for(mode), msgs, ag.budget_note() if mode != "chat" else None)
+        if ag.estimate_tokens(view_fn()) > NUM_CTX * 0.70 or ag.ctx_tokens > NUM_CTX * 0.80:
+            if ag.compact(): ag.ctx_tokens = 0; save()
         try:
-            content, calls, stats = stream_ollama(msgs, emit, stop, model, tools=(mode != "chat"), mode=mode, think=think)
+            res = call_model(ag, view_fn, emit, stop, model, mode != "chat", think)
         except Exception as e:
-            emit({"type": "error", "text": f"No pude hablar con Ollama: {e}"}); return
+            emit({"type": "error", "text": f"No pude hablar con Ollama tras 3 intentos: {e}"}); ag.log("BLOCKERS.md", f"Ollama no responde: {str(e)[:150]}"); outcome = "error"; break
+        if res is None:
+            emit({"type": "notice", "text": "Detenido por el usuario."}); outcome = "stopped"; break
+        content, calls, stats = res
         if mode == "chat":
             calls = []
         elif not calls and content:
             parsed = parse_text_tool_call(content)
             calls = parsed[0] if parsed else []
             if parsed:
-                emit({"type": "clear_text"})
-                content = parsed[1]
+                emit({"type": "clear_text"}); content = parsed[1]
                 if content: emit({"type": "token", "text": content})
+        if not calls and not content.strip() and not stats.get("thinking"):
+            emit({"type": "error", "text": "El modelo devolvió respuestas vacías 3 veces seguidas: tarea BLOQUEADA (progreso guardado; pulsa Reanudar)."})
+            ag.log("BLOCKERS.md", "el modelo devolvió respuestas vacías"); outcome = "blocked"; break
+        if stats.get("prompt_tokens"):
+            ag.ctx_tokens = stats["prompt_tokens"] + (stats.get("tokens") or 0)
+        if stats.get("tps"):
+            ag.tps.append(stats["tps"]); LAST_SPEED["tps"] = stats["tps"]
         nudge = None
-        if not calls and content:
-            if mode != "chat" and not refused and REFUSAL.search(content):
-                refused = True
+        if mode != "chat" and not calls and content:
+            if LOOKS_LIKE_CALL.search(content):
+                ag.n_invalid += 1; ag.strag.parsefail += 1; st["parse"] += 1
+                nudge = ("Tu llamada a herramienta estaba mal formada y NO se ejecutó. Vuelve a emitirla con el formato de herramientas (nombre y argumentos como JSON válido, strings escapados). "
+                         "Si el contenido es muy largo, divídelo en varias llamadas write_file/edit_file más pequeñas.")
+                if st["parse"] >= 4:
+                    emit({"type": "error", "text": "Cuatro llamadas a herramientas mal formadas seguidas: tarea BLOQUEADA."}); ag.log("BLOCKERS.md", "llamadas a herramientas mal formadas repetidas"); outcome = "blocked"; break
+            elif not st["refused"] and REFUSAL.search(content):
+                st["refused"] = True
                 nudge = "Eso es incorrecto: SÍ tienes acceso a internet y a un shell mediante tus herramientas (web_search, web_fetch, bash). Úsalas ahora para hacer lo que te pedí."
-            elif mode != "chat" and st["fail"] and st["nf"] < 2:
+            elif ag.last_test and not ag.last_test["ok"] and st["nf"] < 3:
                 st["nf"] += 1
-                nudge = ("La ÚLTIMA ejecución de pruebas FALLÓ. No digas que pasaron. Salida:\n" + st["fail"][1] +
-                         "\nLee el error, corrige la causa (por ejemplo imports, estructura del paquete o instalación con pip install -e .) y vuelve a ejecutar las pruebas hasta que pasen. "
-                         "Si no puedes arreglarlo, informa honestamente del fallo.")
+                nudge = (f"La ÚLTIMA ejecución de pruebas FALLÓ ({ag.last_test['summary']}). No digas que pasaron. Lee el error, corrige la causa y vuelve a ejecutar run_tests hasta que pasen. "
+                         "Si no puedes arreglarlo, marca la tarea como blocked con evidencia e informa honestamente.")
             elif mode == "agent" and st["wrote"] and not st["ran"] and not st["nv"]:
                 st["nv"] = True
-                nudge = "Escribiste código pero no lo has ejecutado ni probado. Ejecútalo y/o corre sus pruebas ahora con bash y corrige lo que falle antes de dar la tarea por terminada."
+                nudge = "Escribiste código pero no lo has ejecutado ni probado. Ejecútalo y/o corre run_tests ahora y corrige lo que falle antes de dar la tarea por terminada."
+            elif mode == "agent" and ag.pending() and st["pend"] < 5 and not ag.in_reserve():
+                st["pend"] += 1
+                nudge = "Todavía hay tareas sin completar según el plan:\n" + "\n".join(f"{i}. [{kit.STATUS_ES[t['status']]}] {t['text']}" for i, t in enumerate(ag.tasks, 1) if t["status"] in ("pending", "running")) + \
+                        "\nContinúa con la siguiente usando herramientas. Si alguna es imposible, márcala con plan(update, status=blocked, evidence=…)."
+            elif mode == "agent" and INTENT.search(content[-400:]) and st["intent"] < 2 and len(content) < 700:
+                st["intent"] += 1
+                nudge = "Anuncias lo que vas a hacer pero no llamaste a ninguna herramienta. Ejecútalo ahora con la herramienta correspondiente."
             elif looks_english(content) and not st["ne"]:
                 st["ne"] = True
                 nudge = "Debes responder SIEMPRE en español. Reescribe tu respuesta anterior en español."
         if nudge:
             msgs.append({"role": "assistant", "content": content, "hidden": True})
-            msgs.append({"role": "user", "hidden": True, "content": nudge})
-            emit({"type": "clear_text"}); continue
+            hidden_user(nudge); emit({"type": "clear_text"}); save(); continue
         content = re.sub(r"</?tool_call>", "", content).strip() if not calls else content
         if calls and len(content) > 220:   # borrador de conclusión repetido mientras aún usa herramientas
             content = ""; emit({"type": "clear_text"})
         th = stats.pop("thinking", "")
-        a = {"role": "assistant", "content": content, "stats": stats, **({"thinking": th} if th else {})}
+        a = {"role": "assistant", "content": content, "stats": {k: v for k, v in stats.items() if k in ("tokens", "tps")}, **({"thinking": th} if th else {})}
         if calls:
             a["tool_calls"] = [{"id": uuid.uuid4().hex[:8], **c} for c in calls]
+            st["parse"] = 0; st["pend"] = 0
         msgs.append(a)
-        if stats.get("tps"):
-            LAST_SPEED["tps"] = stats["tps"]
-        emit({"type": "assistant_done", "stats": stats})
+        emit({"type": "assistant_done", "stats": a["stats"]})
         if not calls:
-            return
+            outcome = "done"; break
+        reasons = []
         for c in a["tool_calls"]:
             name = c["function"]["name"]; args = c["function"].get("arguments") or {}
             if isinstance(args, str):
                 try: args = json.loads(args)
                 except Exception: args = {}
-            emit({"type": "tool_start", "id": c["id"], "name": name, "args": args})
-            ok_run = True
-            if needs_approval(name, args):
-                ev = threading.Event(); APPROVALS[c["id"]] = {"event": ev, "ok": False}
-                emit({"type": "approval", "id": c["id"], "name": name, "args": args})
-                while not ev.wait(0.5):
-                    if stop.is_set(): break
-                ok_run = APPROVALS.pop(c["id"], {}).get("ok", False) and not stop.is_set()
-            if name == "notify":
-                emit({"type": "notify", "title": str(args.get("title") or "Panel del Pod"), "text": str(args.get("message", ""))})
-                msgs.append({"role": "tool", "tool_name": name, "content": "Aviso enviado al usuario.", "tool_call_id": c["id"], "ok": True})
-                emit({"type": "tool_result", "id": c["id"], "ok": True, "output": "Aviso enviado al usuario."}); continue
-            key = json.dumps([name, args], sort_keys=True)
-            if ok_run and key in seen and name in ("bash", "read_file", "list_dir", "web_search", "web_fetch", "describe_image"):
-                ok, out = True, seen[key] + "\n[AVISO: ya ejecutaste exactamente esto y el resultado es el mismo. No lo repitas: da ahora tu respuesta final al usuario.]"
-            elif ok_run:
-                ok, out = exec_tool(name, args); seen[key] = out
-                if name == "write_file" and str(args.get("path", "")).endswith(CODE_EXT): st["wrote"], st["ran"] = True, False
-                if name == "bash":
-                    st["ran"] = True
-                    cmd = str(args.get("command", ""))
-                    if re.search(r"pytest|unittest|npm (run )?test|go test|cargo test|mvn test|jest|vitest", cmd):
-                        m = re.search(r"\[código de salida (\d+)\]", out)
-                        st["fail"] = (m and m.group(1) != "0") and (cmd, out[-600:]) or None
+            if not isinstance(args, dict): args = {}
+            emit({"type": "tool_start", "id": c["id"], "name": name, "args": {k: (kit.redact(v) if isinstance(v, str) else v) for k, v in args.items()}})
+            ok_run, blocked = True, False
+            if name not in TOOL_NAMES:
+                ag.n_calls += 1; ag.n_invalid += 1; ag.n_err += 1
+                out = f"Herramienta desconocida: {name}. Disponibles: " + ", ".join(sorted(TOOL_NAMES)); ok = False
             else:
-                ok, out = False, "El usuario rechazó o no aprobó este comando. Propón una alternativa más segura."
+                if needs_approval(name, args):
+                    ev = threading.Event(); APPROVALS[c["id"]] = {"event": ev, "ok": False}
+                    emit({"type": "approval", "id": c["id"], "name": name, "args": args})
+                    deadline = time.time() + 900
+                    while not ev.wait(0.5):
+                        if stop.is_set() or time.time() > deadline: break
+                    ok_run = APPROVALS.pop(c["id"], {}).get("ok", False) and not stop.is_set()
+                    blocked = not ok_run
+                if ok_run:
+                    ag.phase = {"run_tests": "VERIFICAR", "git_commit": "PUBLICAR", "git_push": "PUBLICAR"}.get(name, ag.phase if ag.phase != "PLANIFICAR" else "EJECUTAR")
+                    ok, out = ag.exec(name, args)
+                    if name == "write_file" and str(args.get("path", "")).endswith(CODE_EXT): st["wrote"], st["ran"] = True, False
+                    if name == "edit_file" and str(args.get("path", "")).endswith(CODE_EXT): st["wrote"], st["ran"] = True, False
+                    if name in ("bash", "run_tests"): st["ran"] = True
+                else:
+                    ok, out = False, "El usuario rechazó o no aprobó este comando (o no respondió a tiempo). Propón una alternativa más segura; no insistas con el mismo comando."
+                    ag.n_calls += 1; ag.n_err += 1
             msgs.append({"role": "tool", "tool_name": name, "content": out, "tool_call_id": c["id"], "ok": ok})
             emit({"type": "tool_result", "id": c["id"], "ok": ok, "output": out})
-    emit({"type": "notice", "text": f"Alcancé el máximo de {max_steps} pasos. Escribe «continúa» para seguir."})
+            r = ag.strag.record(name, args, ok, out, blocked=blocked)
+            if r: reasons.append(r)
+            ag.push_status()
+        if reasons:
+            s = ag.strag.strikes
+            ag.log("BLOCKERS.md", f"estancamiento ({s}): {reasons[0]}")
+            if s >= 4:
+                emit({"type": "error", "text": f"BLOQUEADO por estancamiento: {reasons[0]}. Progreso guardado; revisa BLOCKERS.md y pulsa Reanudar con nuevas indicaciones."}); outcome = "blocked"; save("blocked"); break
+            hidden_user(f"ESTANCAMIENTO detectado ({s}/4): {reasons[0]}. Detén ese intento. 1) Resume en una frase qué estás intentando. 2) Inspecciona la causa real (lee el error completo, el archivo o el log relevante). "
+                        "3) Cambia de estrategia: no repitas la misma acción." + (" Si no existe una alternativa válida, marca la tarea como blocked con plan(update, status=blocked, evidence=causa) y sigue con otra." if s >= 2 else ""))
+            emit({"type": "notice", "text": f"⚠ Estancamiento ({s}/4): {reasons[0]}. Cambio de estrategia solicitado al modelo."})
+        save()
+    else:
+        emit({"type": "notice", "text": f"Alcancé el máximo de {max_steps} pasos. Pulsa Reanudar para seguir."}); outcome = "incomplete"
+    if outcome == "done" and mode == "agent" and ag.pending():
+        outcome = "incomplete"
+    ag.push_status(); save(outcome)
+    return outcome
+
+RUNS_AGENT = {}   # conv_id -> Agent (último)
 
 def title_from(text):
     t = re.sub(r"\s+", " ", text).strip()
@@ -541,6 +669,116 @@ def new_conv():
     c = {"id": uuid.uuid4().hex[:12], "title": "Nueva conversación", "created": time.time(), "updated": time.time(), "messages": []}
     jsave(conv_path(c["id"]), c)
     return c
+
+def ram_info():
+    try:
+        m = {l.split(":")[0]: int(l.split()[1]) for l in Path("/proc/meminfo").read_text().splitlines()}
+        return {"used": (m["MemTotal"] - m["MemAvailable"]) // 1024, "total": m["MemTotal"] // 1024}
+    except Exception:
+        return None
+
+def metrics():
+    """Métricas reales agregadas del registro de herramientas (toollog/*.jsonl)."""
+    n = ok = 0; secs = 0.0; per = {}
+    for f in (HOME / "toollog").glob("*.jsonl"):
+        for line in f.read_text(errors="replace").splitlines():
+            try: e = json.loads(line)
+            except ValueError: continue
+            n += 1; ok += bool(e["ok"]); secs += e["seconds"]; p = per.setdefault(e["tool"], [0, 0, 0.0]); p[0] += 1; p[1] += bool(e["ok"]); p[2] += e["seconds"]
+    return {"tool_calls": n, "ok": ok, "avg_seconds": round(secs / n, 2) if n else None,
+            "per_tool": {k: {"n": v[0], "ok": v[1], "avg_s": round(v[2] / v[0], 2)} for k, v in per.items()}, "tps_last": LAST_SPEED["tps"]}
+
+class Run:
+    """Una tarea del agente: corre en su propio hilo, independiente del navegador; los eventos quedan en memoria para reenganchar."""
+    def __init__(self, cid):
+        self.cid, self.events, self.cond, self.status, self.stop, self.base, self.t0 = cid, [], threading.Condition(), "running", threading.Event(), 0, time.time()
+    def emit(self, ev):
+        with self.cond:
+            self.events.append(ev); self.cond.notify_all()
+
+RUNS = {}
+
+def run_worker(run, conv, b):
+    emit, stop = run.emit, run.stop
+    mode = b.get("mode", "agent"); text = (b.get("message") or "").strip()
+    outcome = "error"
+    try:
+        if conv["title"] == "Nueva conversación" and (text or b.get("attachments")):
+            conv["title"] = title_from(text.lstrip("!/") or "Archivos adjuntos")
+        conv["run"] = {**(conv.get("run") or {}), "status": "running", "started": time.time()}
+        run_model = True
+        if b.get("resume"):
+            kit.repair_history(conv["messages"])
+            conv["messages"].append({"role": "user", "hidden": True, "content": "REANUDA la tarea donde la dejaste: revisa el estado real (git_status, plan action=show, PROGRESS.md/BLOCKERS.md) y continúa con la siguiente tarea pendiente sin repetir lo ya hecho." + (f"\nIndicaciones del usuario: {text}" if text else "")})
+            emit({"type": "user", "text": "↻ Reanudar tarea" + (f": {text}" if text else "")})
+        elif text.startswith("!"):   # comando directo en el pod
+            cmd = text[1:].strip()
+            emit({"type": "tool_start", "id": "sh", "name": "bash", "args": {"command": cmd}})
+            r = kit.run_cmd(cmd, stop=stop); out = kit.fmt_result(r)
+            emit({"type": "tool_result", "id": "sh", "ok": r["code"] == 0, "output": out})
+            conv["messages"].append({"role": "user", "content": f"Ejecuté en el pod: `{kit.redact(cmd)}`\nSalida (código {r['code']}):\n```\n{clip(out, 6000)}\n```",
+                                     "shell": {"cmd": kit.redact(cmd), "output": clip(out), "code": r["code"]}})
+            run_model = bool(b.get("send_output", True))
+        elif text.startswith("/leer "):
+            emit({"type": "user", "text": text})
+            url = text[6:].strip()
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "pod-panel"}), timeout=20) as r:
+                    raw = r.read(400000).decode("utf-8", "replace")
+                page = re.sub(r"\s+", " ", re.sub(r"<(script|style)[\s\S]*?</\1>|<[^>]+>", " ", raw)).strip()
+            except Exception as e:
+                page = f"[error al leer: {e}]"
+            conv["messages"].append({"role": "user", "content": f"Contenido de {url}:\n{clip(page, 8000)}\n\n(Resume lo relevante y espera instrucciones.)", "display": text})
+        else:
+            atts = b.get("attachments") or []
+            emit({"type": "user", "text": text, "atts": [{"name": a.get("name"), "kind": a.get("kind"), "path": a.get("path")} for a in atts]})
+            if atts:
+                block = attachments_block(atts, emit)
+                conv["messages"].append({"role": "user", "display": text, "content": (text or "Analiza los archivos adjuntos.") + "\n\n[Archivos adjuntos]\n" + block, "attachments": atts})
+            else:
+                conv["messages"].append({"role": "user", "content": text})
+        jsave(conv_path(conv["id"]), conv)
+        if run_model:
+            bm = b.get("budget_min")
+            outcome = agent_turn(conv, emit, stop, mode, b.get("model") or MODEL, bool(b.get("think")), float(bm) if bm else None)
+        else:
+            outcome = "done"
+        conv["updated"] = time.time()
+        conv["run"] = {**(conv.get("run") or {}), "status": outcome}
+        jsave(conv_path(conv["id"]), conv)
+        emit({"type": "title", "title": conv["title"], "id": conv["id"]})
+        if mode in ("agent", "research") and not stop.is_set() and b.get("auto_push", True) and outcome in ("done", "budget", "blocked", "incomplete"):
+            g = git_save("pod: " + conv["title"])
+            if g.get("committed") or not g.get("ok"):
+                emit({"type": "git", **g})
+        emit({"type": "outcome", "outcome": outcome})
+    except Exception as e:
+        emit({"type": "error", "text": str(e)})
+        conv["run"] = {**(conv.get("run") or {}), "status": "error"}
+        try: jsave(conv_path(conv["id"]), conv)
+        except Exception: pass
+    finally:
+        emit({"type": "done"})
+        run.status = "done"
+        with run.cond: run.cond.notify_all()
+        STOPS.pop(conv["id"], None)
+
+def mark_interrupted():
+    """Al arrancar: las tareas que estaban 'running' se quedaron a medias (reinicio/corte). Se marcan para poder reanudarlas."""
+    for p in CONV_DIR.glob("*.json"):
+        c = jload(p, {})
+        if (c.get("run") or {}).get("status") == "running":
+            c["run"]["status"] = "interrupted"; jsave(p, c)
+
+def install_hooks():
+    """Hook pre-commit que bloquea secretos incluso si el modelo hace `git commit` por bash."""
+    try:
+        h = REPO / ".git" / "hooks" / "pre-commit"
+        body = f"#!/bin/sh\n# panel-secret-scan\nexec python3 {Path(__file__).resolve().parent / 'agentkit.py'} --scan-staged\n"
+        if not h.exists() or "panel-secret-scan" in h.read_text():
+            h.write_text(body); h.chmod(0o755)
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------- HTTP
 class H(BaseHTTPRequestHandler):
@@ -560,12 +798,28 @@ class H(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             if path == "/api/status":
-                return self._json({"clock": pod_clock(), "gpu": gpu_info(), "ollama": ollama_info(), "git": git_info(),
-                                   "model": MODEL, "search": bool(search_key()), "tps": LAST_SPEED["tps"]})
+                return self._json({"clock": pod_clock(), "gpu": gpu_info(), "ollama": ollama_info(), "git": git_info(), "ram": ram_info(),
+                                   "model": MODEL, "search": bool(search_key()), "tps": LAST_SPEED["tps"], "num_ctx": NUM_CTX,
+                                   "runs": [k for k, r in RUNS.items() if r.status == "running"]})
+            if path == "/api/metrics":
+                return self._json(metrics())
+            m = re.fullmatch(r"/api/run/([a-f0-9]+)", path)
+            if m:
+                r = RUNS.get(m.group(1)); ag = RUNS_AGENT.get(m.group(1))
+                return self._json({"active": bool(r and r.status == "running"), "base": r.base if r else 0, "status": ag.status() if ag else None,
+                                   "run": (jload(conv_path(m.group(1)), {}) or {}).get("run")})
+            m = re.fullmatch(r"/api/runs/([a-f0-9]+)", path)
+            if m:
+                from urllib.parse import parse_qs
+                r = RUNS.get(m.group(1))
+                if not r: return self._json({"status": "none"})
+                return self.stream_run(r, int(parse_qs(urlparse(self.path).query).get("from", ["0"])[0]))
+            if path == "/api/git/verify":
+                return self._json(git_verify())
             if path == "/api/conversations":
                 items = [jload(p, {}) for p in CONV_DIR.glob("*.json")]
                 items = sorted([c for c in items if c], key=lambda c: -c.get("updated", 0))
-                return self._json([{"id": c["id"], "title": c["title"], "updated": c["updated"], "n": sum(1 for m in c.get("messages", []) if m.get("role") == "user" and not m.get("hidden"))} for c in items])
+                return self._json([{"id": c["id"], "title": c["title"], "updated": c["updated"], "n": sum(1 for m in c.get("messages", []) if m.get("role") == "user" and not m.get("hidden")), "state": (c.get("run") or {}).get("status")} for c in items])
             if path == "/api/file":
                 from urllib.parse import parse_qs
                 f = Path(parse_qs(urlparse(self.path).query).get("path", [""])[0]).resolve()
@@ -622,8 +876,14 @@ class H(BaseHTTPRequestHandler):
                 ev = STOPS.get(b.get("id"))
                 if ev: ev.set()
                 return self._json({"ok": True})
+            if path == "/api/resume":
+                return self.chat({**b, "resume": True})
+            if path == "/api/config":
+                return self._json(set_config(b))
+            if path == "/api/git/integrate":
+                return self._json(git_integrate(b.get("target")))
             if path == "/api/git/push":
-                return self._json(git_save(b.get("message") or "pod: guardado manual desde el panel"))
+                return self._json(git_save(b.get("message") or "pod: guardado manual desde el panel", push=True))
             if path == "/api/git/pull":
                 return self._json(git_pull())
             if path == "/api/git/token":
@@ -640,71 +900,53 @@ class H(BaseHTTPRequestHandler):
                 st = jload(STATE_FILE, {}); st["clock_reset"] = time.time(); jsave(STATE_FILE, st)
                 return self._json({"ok": True})
             if path == "/api/shell":
-                code, out = run(b.get("command", ""), timeout=int(b.get("timeout", 120)))
-                return self._json({"code": code, "output": clip(out)})
+                r = kit.run_cmd(b.get("command", ""), timeout=int(b.get("timeout", 120)))
+                return self._json({"code": r["code"], "output": clip(kit.fmt_result(r))})
             self._json({"error": "no encontrado"}, 404)
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
+    def stream_run(self, run, start=0):
+        """Emite los eventos de una tarea por SSE. Si el navegador se desconecta, la tarea CONTINÚA (se puede reenganchar)."""
+        try:
+            self.send_response(200)
+            for k, v in {"Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "close"}.items():
+                self.send_header(k, v)
+            self.end_headers(); self.close_connection = True
+            i = start
+            while True:
+                with run.cond:
+                    if i >= len(run.events) and run.status == "running":
+                        run.cond.wait(15)
+                    batch = run.events[i:]; i += len(batch)
+                    finished = run.status != "running" and i >= len(run.events)
+                if batch:
+                    self.wfile.write(b"".join(b"data: " + json.dumps(ev, ensure_ascii=False).encode() + b"\n\n" for ev in batch))
+                else:
+                    self.wfile.write(b": ping\n\n")
+                self.wfile.flush()
+                if finished:
+                    return
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+
     def chat(self, b):
         conv = jload(conv_path(b["id"]), None) or new_conv()
-        text, mode = (b.get("message") or "").strip(), b.get("mode", "agent")
-        if not text and not b.get("attachments"):
+        text = (b.get("message") or "").strip()
+        if not text and not b.get("attachments") and not b.get("resume"):
             return self._json({"error": "mensaje vacío"}, 400)
-        self.send_response(200)
-        for k, v in {"Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "close"}.items():
-            self.send_header(k, v)
-        self.end_headers(); self.close_connection = True
-        lock = threading.Lock()
-        def emit(ev):
-            try:
-                with lock:
-                    self.wfile.write(b"data: " + json.dumps(ev, ensure_ascii=False).encode() + b"\n\n"); self.wfile.flush()
-            except Exception:
-                stop.set()
-        stop = STOPS[conv["id"]] = threading.Event()
-        try:
-            if conv["title"] == "Nueva conversación" and (text or b.get("attachments")):
-                conv["title"] = title_from(text.lstrip("!/") or "Archivos adjuntos")
-            run_model = True
-            if text.startswith("!"):   # comando directo en el pod
-                cmd = text[1:].strip()
-                emit({"type": "tool_start", "id": "sh", "name": "bash", "args": {"command": cmd}})
-                code, out = run(cmd)
-                emit({"type": "tool_result", "id": "sh", "ok": code == 0, "output": clip(out.strip() or "(sin salida)") + f"\n[código de salida {code}]"})
-                conv["messages"].append({"role": "user", "content": f"Ejecuté en el pod: `{cmd}`\nSalida (código {code}):\n```\n{clip(out, 6000)}\n```",
-                                         "shell": {"cmd": cmd, "output": clip(out), "code": code}})
-                run_model = bool(b.get("send_output", True))
-            elif text.startswith("/leer "):
-                url = text[6:].strip()
-                try:
-                    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "pod-panel"}), timeout=20) as r:
-                        raw = r.read(400000).decode("utf-8", "replace")
-                    page = re.sub(r"\s+", " ", re.sub(r"<(script|style)[\s\S]*?</\1>|<[^>]+>", " ", raw)).strip()
-                except Exception as e:
-                    page = f"[error al leer: {e}]"
-                conv["messages"].append({"role": "user", "content": f"Contenido de {url}:\n{clip(page, 8000)}\n\n(Resume lo relevante y espera instrucciones.)", "display": text})
-            elif text or b.get("attachments"):
-                atts = b.get("attachments") or []
-                if atts:
-                    block = attachments_block(atts, emit)
-                    conv["messages"].append({"role": "user", "display": text, "content": (text or "Analiza los archivos adjuntos.") + "\n\n[Archivos adjuntos]\n" + block, "attachments": atts})
-                else:
-                    conv["messages"].append({"role": "user", "content": text})
-            if run_model:
-                agent_turn(conv, emit, stop, mode, b.get("model") or MODEL, bool(b.get("think")))
-            conv["updated"] = time.time(); jsave(conv_path(conv["id"]), conv)
-            emit({"type": "title", "title": conv["title"], "id": conv["id"]})
-            if mode in ("agent", "research") and not stop.is_set() and b.get("auto_push", True):
-                g = git_save("pod: " + conv["title"])
-                if g.get("committed") or not g.get("ok"):
-                    emit({"type": "git", **g})
-        except Exception as e:
-            emit({"type": "error", "text": str(e)})
-        finally:
-            emit({"type": "done"}); STOPS.pop(conv["id"], None)
+        run = RUNS.get(conv["id"])
+        if not (run and run.status == "running"):
+            run = Run(conv["id"]); RUNS[conv["id"]] = run; STOPS[conv["id"]] = run.stop
+            run.base = len(conv["messages"])
+            for k in [k for k, r in RUNS.items() if r.status != "running"][:-8]: RUNS.pop(k, None)
+            threading.Thread(target=run_worker, args=(run, conv, b), daemon=True).start()
+        self.stream_run(run, 0)
+
+apply_config()
 
 if __name__ == "__main__":
+    mark_interrupted(); install_hooks()
     ensure_branch()
     host, port = os.environ.get("PANEL_HOST", "127.0.0.1"), int(os.environ.get("PANEL_PORT", "8787"))
     print(f"Panel del Pod en http://{host}:{port}  ·  modelo {MODEL}  ·  workdir {WORKDIR}  ·  rama {BRANCH}")

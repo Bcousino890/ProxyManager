@@ -111,3 +111,10 @@ details.think .tt{white-space:pre-wrap;margin-top:6px;max-height:260px;overflow:
 .thread:has(.empty){margin:auto}
 .jump{position:absolute;right:28px;bottom:150px;border:1px solid var(--line);background:var(--panel);box-shadow:0 2px 10px rgb(0 0 0/.18);border-radius:99px;padding:7px 14px;font-size:13px;color:var(--accent);font-weight:600;z-index:3}
 .main{position:relative}
+
+.agentbar{margin:0 auto;max-width:860px;width:calc(100% - 24px);border:1px solid var(--line,#2a2f3a);border-radius:10px;padding:6px 10px;font-size:12.5px;background:var(--card,#161a22)}
+.agentbar summary{display:flex;gap:10px;cursor:pointer;align-items:center}.agentbar summary .grow{flex:1}
+.ab-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:4px 12px;margin:8px 0}
+.ab-tasks{list-style:none;margin:4px 0;padding:0}.ab-tasks li{padding:2px 0}
+.st-PENDIENTE{color:#8b93a1}.st-EJECUTANDO{color:#e0b341}.st-COMPLETADO{color:#4cc38a}.st-FALLIDO{color:#ef6b6b}.st-BLOQUEADO{color:#ef9b4b}
+#ghDlg label{display:block;margin:6px 0}#ghDlg input,#ghDlg select{width:100%;margin-top:2px}

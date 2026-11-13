@@ -39,6 +39,7 @@
         <button class="btn" id="btnPull">Traer</button>
         <button class="btn primary" id="btnPush">Subir</button>
         <button class="btn ghost" id="btnToken" title="Token de GitHub">🔑</button>
+        <button class="btn ghost" id="btnGhCfg" title="Repositorio, rama, directorio y estrategia">⚙</button>
       </div>
       <div class="muted small" id="ghMsg"></div>
     </section>
@@ -67,6 +68,11 @@
     <div class="scroll" id="scroll"><div class="thread" id="thread"></div></div>
 
     <button class="jump" id="jump" hidden>↓ Ir al final</button>
+    <details class="agentbar" id="agentbar" hidden>
+      <summary><span id="abPhase">—</span><span id="abTask" class="muted"></span><span class="grow"></span><span id="abTime" class="muted"></span></summary>
+      <div class="ab-grid" id="abGrid"></div><ul class="ab-tasks" id="abTasks"></ul>
+      <div class="btns"><button class="btn" id="abResume" hidden>↻ Reanudar</button></div>
+    </details>
     <footer class="composer-wrap">
       <div class="composer">
         <div class="tray" id="tray" hidden></div>
@@ -77,6 +83,7 @@
           <label class="check"><input type="checkbox" id="sendOut" checked> Enviar salida al modelo</label>
           <label class="check"><input type="checkbox" id="autoPush" checked> Subir a GitHub al terminar</label>
           <label class="check" title="Usa un modelo que piensa paso a paso antes de actuar (más lento, más fiable)"><input type="checkbox" id="think"> Razonar</label>
+          <label class="check" title="Tiempo máximo de esta tarea en minutos (vacío = hasta el límite del pod). El agente reserva el final para probar, commitear y publicar."><input type="number" id="budget" min="5" max="600" placeholder="min" style="width:54px"> Presupuesto</label>
           <label class="check" title="Notificación y sonido cuando termine"><input type="checkbox" id="notifyOn" checked> Avisarme al terminar</label>
           <span class="grow"></span>
           <button class="btn stop" id="stop" hidden>■ Detener</button>
@@ -101,6 +108,18 @@
     <p class="muted small">Google, Bing y DuckDuckGo bloquean las IP de los pods. Con una clave gratuita de <b>Tavily</b> (1.000 búsquedas al mes en <a class="link" target="_blank" rel="noopener" href="https://app.tavily.com">app.tavily.com</a>) el agente busca en toda la web. Se guarda solo en este pod (<code>~/.pod-panel/tavily-key</code>).</p>
     <input type="password" id="searchInp" placeholder="tvly-…" autocomplete="off">
     <div class="btns"><button class="btn" value="cancel">Cancelar</button><button class="btn primary" id="searchSave" value="ok">Guardar</button></div>
+  </form>
+</dialog>
+<dialog id="ghDlg">
+  <form method="dialog">
+    <h3>Publicación en GitHub</h3>
+    <p class="muted small">El agente trabaja en una <b>rama</b> (nunca main directamente). «Integrar» lleva la rama a otra existente solo si es avance rápido (sin force).</p>
+    <label class="small">Repositorio (dueño/nombre)<input id="cfgRepo"></label>
+    <label class="small">Rama de trabajo<input id="cfgBranch"></label>
+    <label class="small">Directorio de trabajo (dentro del repo)<input id="cfgDir"></label>
+    <label class="small">Estrategia<select id="cfgStrat"><option value="local">Solo local (sin commit)</option><option value="commit">Commit local</option><option value="push">Commit + subir rama + verificar</option></select></label>
+    <div class="muted small" id="cfgMsg"></div>
+    <div class="btns"><button class="btn" type="button" id="cfgVerify">Verificar remoto</button><button class="btn" type="button" id="cfgIntegrate">Integrar en…</button><button class="btn" value="cancel">Cerrar</button><button class="btn primary" type="button" id="cfgSave">Guardar</button></div>
   </form>
 </dialog>
 <div class="toast" id="toast" hidden></div>
