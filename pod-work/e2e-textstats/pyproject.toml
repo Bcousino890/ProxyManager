@@ -1,22 +1,2 @@
-[build-system]
-requires = ["setuptools>=45", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "textstats"
-version = "0.1.0"
-description = "Simple text statistics library"
-authors = [{name = "User"}]
-readme = "README.md"
-requires-python = ">=3.8"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-]
-
-[project.urls]
-Homepage = "https://github.com/user/textstats"
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.pytest.ini_options]
+pythonpath = ["src"]

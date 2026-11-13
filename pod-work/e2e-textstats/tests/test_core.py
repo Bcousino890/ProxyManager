@@ -1,7 +1,10 @@
-import pytest
-from textstats.core import word_count
+import textstats.core
 
-def test_word_count():
-    assert word_count("hola  mundo") == 2  # Dos espacios seguidos, debe ser 2 palabras
-    assert word_count("") == 0
-    assert word_count("uno dos tres") == 3
+def test_word_count_double_space():
+    assert textstats.core.word_count("hola  mundo") == 2
+
+def test_word_count_empty():
+    assert textstats.core.word_count("") == 0
+
+def test_word_count_three_words():
+    assert textstats.core.word_count("uno dos tres") == 3

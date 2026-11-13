@@ -1,11 +1,8 @@
-from textstats.core import word_count
+import textstats.core
 from tabulate import tabulate
 
-# Datos de prueba
 data = [
-    ("hola  mundo", word_count("hola  mundo")),
-    ("uno dos tres", word_count("uno dos tres"))
+    ["hola  mundo", textstats.core.word_count("hola  mundo")],
+    ["uno dos tres", textstats.core.word_count("uno dos tres")]
 ]
-
-# Imprimir tabla
-print(tabulate(data, headers=["Texto", "Conteo de Palabras"], tablefmt="grid"))
+print(tabulate(data, headers=["Text", "Word Count"]))

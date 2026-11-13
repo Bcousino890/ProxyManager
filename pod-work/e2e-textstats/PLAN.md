@@ -2,11 +2,11 @@
 
 Leyenda: [ ] pendiente · [~] ejecutando · [x] completado (con evidencia) · [!] fallido · [B] bloqueado
 
-1. [x] Crear el proyecto textstats con project_init  — evidencia: Proyecto creado con project_init en /root/e2e/repo/pod-work/e2e-textstats
-2. [x] Configurar venv y dependencias  — evidencia: Creado venv y instaladas pytest y tabulate en /root/e2e/repo/pod-work/e2e-textstats
-3. [x] Escribir src/textstats/__init__.py y src/textstats/core.py  — evidencia: Creados __init__.py (0 car.) y core.py (65 car.) en /root/e2e/repo/pod-work/e2e-textstats/src/textstats/
-4. [x] Escribir run.py  — evidencia: Creado run.py y ejecutado con éxito, mostrando tabla de conteo de palabras
-5. [x] Escribir tests/test_core.py y pyproject.toml  — evidencia: Creados tests/test_core.py y pyproject.toml; ejecutadas pruebas con éxito tras corrección del fallo en core.py
-6. [x] Ejecutar pruebas y diagnosticar fallos  — evidencia: Pruebas ejecutadas y diagnosticadas correctamente; corrección aplicada en core.py
-7. [x] Corregir core.py si es necesario  — evidencia: Corrección aplicada en core.py para manejar correctamente múltiples espacios
-8. [x] Hacer commit y push  — evidencia: Commit realizado con mensaje 'Crear proyecto textstats con pytest, tabulate y funcionalidad básica de conteo de palabras' y push a la rama agent-e2e-test exitoso. Estado de git: rama agent-e2e-test, commit d6835b2716.
+1. [ ] 1. Define plan with plan(action=set)
+2. [ ] 2. Create project using project_init for 'textstats'
+3. [ ] 3. Create venv .venv and install dependencies pytest, tabulate
+4. [ ] 4. Write src/textstats/__init__.py (empty) and src/textstats/core.py with word_count function
+5. [ ] 5. Write run.py in project root and execute
+6. [ ] 6. Write tests/test_core.py and pyproject.toml, then run_tests
+7. [ ] 7. If tests fail, diagnose cause; correct core.py and rerun tests until they pass
+8. [ ] 8. Commit changes with git_commit and push with git_push
