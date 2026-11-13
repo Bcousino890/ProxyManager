@@ -12,3 +12,13 @@
 - 2026-11-13 23:33:20 pruebas FALLARON: 0 aprobadas, 1 falladas/errores (exit 1)
 - 2026-11-13 23:33:23 editado core.py
 - 2026-11-13 23:33:25 pruebas OK: 1 aprobadas, 0 falladas/errores (exit 0)
+- 2026-11-13 23:33:27 commit: Commit creado: 77f13bd Crear proyecto textstats con pytest, tabulate y función word_count corregida
+- 2026-11-13 23:33:31 push OK: Rama agent-e2e-test en GitHub = 77f13bda5f (coincide con el commit local)
+- 2026-11-13 23:33:39 tarea 1 → COMPLETADO: Crear estructura del proyecto
+- 2026-11-13 23:33:39 tarea 2 → COMPLETADO: Instalar dependencias en venv
+- 2026-11-13 23:33:39 tarea 3 → COMPLETADO: Escribir src/textstats/__init__.py y src/textstats/core.py
+- 2026-11-13 23:33:39 tarea 4 → COMPLETADO: Escribir run.py
+- 2026-11-13 23:33:39 tarea 5 → COMPLETADO: Escribir tests/test_core.py y pyproject.toml
+- 2026-11-13 23:33:39 tarea 6 → COMPLETADO: Ejecutar pruebas y diagnosticar fallo
+- 2026-11-13 23:33:39 tarea 7 → COMPLETADO: Corregir core.py si es necesario
+- 2026-11-13 23:33:39 tarea 8 → COMPLETADO: Hacer commit y push
