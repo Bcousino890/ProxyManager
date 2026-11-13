@@ -31,7 +31,12 @@ function codeBlock(lang, code) {
 
 // ---------- hilo
 const thread = $('#thread'), scroller = $('#scroll');
-const bottom = () => { const n = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140; if (n) scroller.scrollTop = scroller.scrollHeight; };
+S.stick = true;
+const dist = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+const bottom = (force) => { if (force) S.stick = true; if (S.stick) scroller.scrollTop = scroller.scrollHeight; };
+scroller.addEventListener('scroll', () => { S.stick = dist() < 80; $('#jump').hidden = S.stick; }, {passive: true});
+new ResizeObserver(() => { if (S.stick) scroller.scrollTop = scroller.scrollHeight; }).observe(thread);
+$('#jump').onclick = () => { S.stick = true; scroller.scrollTo({top: scroller.scrollHeight, behavior: 'smooth'}); $('#jump').hidden = true; };
 function empty() {
   thread.innerHTML = '';
   const e = el('div', 'empty', '<h2>¿Qué construimos hoy?</h2><div>El agente ejecuta comandos reales en el pod, edita archivos y sube todo a GitHub.</div>');
@@ -93,7 +98,7 @@ function render(conv) {
       if (!p.children.length) p.remove();
     }
   }
-  scroller.scrollTop = scroller.scrollHeight;
+  bottom(true); requestAnimationFrame(() => bottom(true));
 }
 
 // ---------- avisos
@@ -156,6 +161,7 @@ async function send(text) {
   if (!S.id) { const c = await api('/conversations', {}); S.id = c.id; }
   $('#input').value = ''; autosize();
   if (thread.querySelector('.empty')) thread.innerHTML = '';
+  S.stick = true;
   if (!text.startsWith('!')) userMsg(text, atts);
   S.files = S.files.filter(f => f.state === 'err' && false); drawTray();
   setBusy(true);
@@ -213,15 +219,23 @@ async function loadStatus() {
   const t = s.git; $('#ghRepo').textContent = t.repo || 'sin remoto'; 
   $('#ghMeta').textContent = `rama ${t.branch} · ${t.workdir}` + (t.dirty ? ` · ${t.dirty} cambios sin subir` : '') + (t.ahead ? ` · ${t.ahead} commits pendientes` : '') + (t.token ? '' : ' · sin token');
 }
+const ago = ts => { const m = Math.floor((Date.now() / 1000 - ts) / 60); return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.floor(m / 60)} h` : new Date(ts * 1000).toLocaleDateString('es', {day: 'numeric', month: 'short'}); };
+const grpOf = ts => { const d0 = new Date(); d0.setHours(0, 0, 0, 0); const day = (d0.getTime() / 1000 - ts) / 86400;
+  return ts >= d0.getTime() / 1000 ? 'Hoy' : day <= 1 ? 'Ayer' : day <= 7 ? 'Últimos 7 días' : 'Anteriores'; };
 async function loadConvs() {
-  const l = await api('/conversations'), ul = $('#convs'); ul.innerHTML = '';
+  const all = await api('/conversations'), q = $('#convq').value.trim().toLowerCase(), ul = $('#convs'); ul.innerHTML = '';
+  const l = all.filter(c => (c.n > 0 || c.id === S.id) && (!q || c.title.toLowerCase().includes(q)));
+  if (!l.length) ul.append(el('li', 'grp', q ? 'Sin resultados' : 'Aún no hay conversaciones'));
+  let last = '';
   for (const c of l) {
-    const li = el('li', c.id === S.id ? 'on' : '', `<span>${esc(c.title)}</span>`), x = el('button', null, '✕'); x.title = 'Borrar';
+    const g = grpOf(c.updated); if (g !== last) { ul.append(el('li', 'grp', g)); last = g; }
+    const li = el('li', c.id === S.id ? 'on' : '', `<span class="t" title="${esc(c.title)}">${esc(c.title)}</span><span class="when">${ago(c.updated)}</span>`), x = el('button', null, '✕'); x.title = 'Borrar';
     x.onclick = async e => { e.stopPropagation(); if (confirm('¿Borrar esta conversación?')) { await api('/conversations/' + c.id, {}, 'DELETE'); if (S.id === c.id) newConv(); else loadConvs(); } };
     li.onclick = async () => { S.id = c.id; render(await api('/conversations/' + c.id)); loadConvs(); $('#side').classList.remove('open'); };
     li.append(x); ul.append(li);
   }
 }
+$('#convq').addEventListener('input', () => loadConvs());
 function newConv() { S.id = null; $('#title').textContent = 'Nueva conversación'; empty(); loadConvs(); $('#side').classList.remove('open'); }
 
 // ---------- eventos de UI

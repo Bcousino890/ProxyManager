@@ -565,7 +565,7 @@ class H(BaseHTTPRequestHandler):
             if path == "/api/conversations":
                 items = [jload(p, {}) for p in CONV_DIR.glob("*.json")]
                 items = sorted([c for c in items if c], key=lambda c: -c.get("updated", 0))
-                return self._json([{"id": c["id"], "title": c["title"], "updated": c["updated"]} for c in items])
+                return self._json([{"id": c["id"], "title": c["title"], "updated": c["updated"], "n": sum(1 for m in c.get("messages", []) if m.get("role") == "user" and not m.get("hidden"))} for c in items])
             if path == "/api/file":
                 from urllib.parse import parse_qs
                 f = Path(parse_qs(urlparse(self.path).query).get("path", [""])[0]).resolve()
