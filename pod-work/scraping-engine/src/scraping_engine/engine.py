@@ -58,19 +58,11 @@ class ScrapingEngine:
 
     async def _scrape_with_httpx(self, url: str, proxy_url: Optional[str]) -> ScrapingResult:
         try:
-            # Configurar el cliente httpx con proxy si se proporciona
-            if proxy_url:
-                # Para httpx, los proxies se pasan como un diccionario con claves 'http' y 'https'
-                proxies = {
-                    "http": proxy_url,
-                    "https": proxy_url
-                }
-                async with httpx.AsyncClient(proxies=proxies) as client:
-                    response = await client.get(url)
-            else:
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(url)
-                    
+            started = time.perf_counter()
+            # httpx >= 0.28: el parámetro es `proxy=` (la antigua `proxies=` ya no existe y rompía TODAS las extracciones)
+            async with httpx.AsyncClient(proxy=proxy_url or None, timeout=20.0, follow_redirects=True) as client:
+                response = await client.get(url)
+
             is_datadome = 'datadome' in response.headers.get('server', '').lower() or \
                           'datadome' in response.headers.get('x-datadome', '').lower()
             
@@ -79,7 +71,7 @@ class ScrapingEngine:
                 status_code=response.status_code,
                 content_type=response.headers.get('content-type', ''),
                 content=response.text,
-                duration_ms=0,
+                duration_ms=round((time.perf_counter() - started) * 1000, 1),
                 is_datadome_blocked=is_datadome
             )
         except Exception as e:

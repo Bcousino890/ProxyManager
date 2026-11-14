@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 import os
@@ -133,19 +134,27 @@ async def read_root(request: Request):
 """
     return html_content
 
+class PanelScrapeRequest(BaseModel):
+    url: str
+    use_js: bool = False
+    proxy: str = ""
+
+
 @app.post("/scrape")
-async def scrape(url: str = Form(...), use_js: bool = Form(...), proxy: str = Form("")):
-    from scraping_engine.engine import WebScraper
-    scraper = WebScraper()
-    result = await scraper.scrape(url, method="javascript" if use_js else "http", proxy=proxy)
-    
+async def scrape(request: PanelScrapeRequest):
+    """Mismo contrato que envía el formulario del panel (JSON). Usa el motor real: HTTP o Playwright."""
+    from scraping_engine.engine import ScrapingEngine
+    engine = ScrapingEngine()
+    fn = engine._scrape_with_playwright if request.use_js else engine._scrape_with_httpx
+    result = await fn(request.url, request.proxy or None)
     return {
-        "content": result["html"],
-        "status_code": result["status_code"],
-        "duration": result["duration"],
-        "error": result["error"],
-        "datadome_blocked": result["datadome_blocked"]
+        "content": result.content or "",
+        "status_code": result.status_code,
+        "duration": result.duration_ms,
+        "error": result.error,
+        "datadome_blocked": result.is_datadome_blocked,
     }
+
 
 if __name__ == "__main__":
     import uvicorn
