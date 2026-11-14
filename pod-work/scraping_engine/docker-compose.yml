@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  scraping-engine:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PROXY_MANAGER_URL=http://proxy-manager:8001
+      - DATABASE_URL=sqlite:///./scraping.db
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - proxy-manager
+    restart: unless-stopped
+
+  proxy-manager:
+    image: bcousino/proxymanager:latest
+    ports:
+      - "8001:8001"
+    environment:
+      - PROXY_MANAGER_URL=http://proxy-manager:8001
+    volumes:
+      - ./proxy-data:/app/data
+    restart: unless-stopped
+
+  # Servicio opcional para persistencia de datos
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: scraping_db
+      POSTGRES_USER: scraping_user
+      POSTGRES_PASSWORD: scraping_password
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped

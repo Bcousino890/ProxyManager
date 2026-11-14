@@ -1,0 +1,1 @@
+"""Módulo de diagnóstico para identificar protección y problemas en las respuestas."""
