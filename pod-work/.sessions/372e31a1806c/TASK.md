@@ -1104,3 +1104,333 @@ Si se agota el presupuesto, guarda y publica los avances válidos, documenta lo 
 LA PRIORIDAD ES DESARROLLAR, PROBAR, GUARDAR Y CONTINUAR SIN PERDER EL TRABAJO REALIZADO.
 
 Después de aplicar estas reglas, ejecuta íntegramente la misión principal de desarrollo del competidor de Crawio.
+
+
+## Comentario del usuario (2026-11-14 02:07:46)
+
+IMPORTANTE: Este mensaje es una ampliación de los requisitos del proyecto actual, NO una tarea nueva.
+
+Continúa ejecutando el plan principal que ya estás desarrollando. No reinicies tareas, no descartes avances y no sustituyas los criterios de aceptación existentes.
+
+Incorpora las tres URLs y el HTML de Crawio como pruebas adicionales, crea los tests de regresión y guarda los avances progresivamente en GitHub.
+
+Prioriza terminar el motor y el Playground antes de añadir funcionalidades secundarias. No interrumpas una operación que ya esté ejecutándose.
+
+# MISIÓN — VALIDACIÓN REAL DEL MOTOR DE SCRAPING Y COMPARACIÓN CON CRAWIO
+
+## 1. OBJETIVO PRINCIPAL
+
+Continuar desarrollando nuestra plataforma de Web Scraping API, aprovechando todo el código existente y utilizando tres páginas reales como casos de prueba y regresión.
+
+Disponemos de nueva evidencia técnica: el HTML completo que Crawio devolvió al consultar una página de Idealista protegida por DataDome.
+
+Debes utilizar esta evidencia para mejorar el extractor, validar los resultados, identificar las limitaciones del motor y completar las funcionalidades pendientes.
+
+**NO EMPIECES EL PROYECTO DESDE CERO.**
+
+Tu responsabilidad es ejecutar comandos reales, implementar las mejoras, realizar pruebas, corregir errores y guardar el progreso continuamente en GitHub.
+
+No te limites a presentar recomendaciones o informes.
+
+---
+
+## 2. ENTORNO EXISTENTE
+
+Repositorio:
+
+https://github.com/Bcousino890/ProxyManager
+
+Rama principal: `main`.
+
+Servicios existentes:
+
+- API de scraping: `http://127.0.0.1:8000`
+- Playground: `http://127.0.0.1:8002`
+- Agente Qwen: `http://127.0.0.1:8787`
+
+El usuario ya puede abrir el Playground desde su Mac mediante un túnel SSH.
+
+Por tanto:
+
+- No investigues RunPod.
+- No configures ngrok.
+- No busques el POD_ID.
+- No exijas una URL pública.
+- No reinicies el pod.
+- No interrumpas el agente del puerto 8787.
+
+Conserva los componentes y los cambios existentes.
+
+Antes de trabajar, inspecciona Git, los archivos sin commit y los documentos de progreso.
+
+---
+
+## 3. NUEVA EVIDENCIA TÉCNICA DE CRAWIO
+
+El usuario ha ejecutado una extracción real mediante Crawio.
+
+URL:
+
+https://www.idealista.com/inmueble/112909923/
+
+Resultado observado:
+
+| Indicador | Resultado |
+|---|---|
+| HTTP | 200 OK |
+| HTML recibido | Aproximadamente 262,1 KB |
+| Tiempo | 830 ms en la última ejecución mostrada |
+| Consumo | 6 créditos |
+| Cabecera | x-datadome: protected |
+| Contenido | HTML real del inmueble |
+
+En una ejecución anterior se observaron aproximadamente 1,3 segundos.
+
+Estos tiempos son observaciones puntuales, no garantías de rendimiento.
+
+### Contenido confirmado en el HTML
+
+- Referencia del anuncio: 112909923.
+- Operación: alquiler.
+- Título: Alquiler de piso en Goya.
+- Ubicación: Barrio de Salamanca, Madrid.
+- Precio: 4.250 €/mes.
+- Superficie: 145 m² construidos.
+- Habitaciones: 3.
+- Baños: 3.
+- Planta: segunda, exterior con ascensor.
+- Anunciante: Atlanta Select Real Estate.
+- Fotografías y descripción del inmueble.
+
+El HTML también incluye scripts de integración de DataDome.
+
+IMPORTANTE:
+
+Que el HTML incluya scripts de DataDome o la respuesta tenga la cabecera `x-datadome: protected` NO demuestra por sí solo cuál es el método utilizado por Crawio.
+
+No inventes cómo funciona su infraestructura interna.
+
+No confundas la capacidad de procesar un HTML proporcionado con la capacidad de obtenerlo directamente.
+
+---
+
+## 4. ARCHIVO HTML DE REFERENCIA
+
+Se adjunta un archivo denominado:
+
+`Texto pegado(1).txt`
+
+Contiene el HTML obtenido mediante Crawio.
+
+### Trabajo obligatorio
+
+1. Localiza el archivo adjunto en el entorno disponible.
+2. Comprueba su integridad y codificación.
+3. Verifica que corresponde al inmueble 112909923.
+4. Inspecciona si contiene datos sensibles, secretos o información innecesaria.
+5. Crea una versión de prueba sanitizada.
+6. Guárdala dentro de `tests/fixtures/`.
+7. Documenta su procedencia como respuesta de referencia obtenida mediante Crawio.
+8. No la presentes como contenido obtenido por nuestro propio motor.
+
+Si el archivo adjunto no existe en el pod, no inventes su contenido. Registra la ruta que falta y continúa con las pruebas independientes.
+
+### Objetivo
+
+Conseguir que nuestro extractor procese el HTML completo y genere datos estructurados correctos.
+
+---
+
+## 5. EXTRACTOR ESTRUCTURADO DE INMUEBLES
+
+Implementa o mejora un módulo independiente para extraer información de anuncios inmobiliarios a partir de HTML obtenido legítimamente.
+
+Debe admitir:
+
+- Identificador de anuncio.
+- URL.
+- Operación: venta o alquiler.
+- Tipo de inmueble.
+- Título.
+- Precio.
+- Moneda.
+- Periodicidad del precio.
+- Superficie construida.
+- Superficie útil.
+- Habitaciones.
+- Baños.
+- Planta.
+- Exterior o interior.
+- Ascensor.
+- Estado.
+- Amueblado.
+- Descripción.
+- Barrio.
+- Distrito.
+- Ciudad.
+- Características.
+- Fotografías.
+- Anunciante.
+- Fecha de extracción.
+- Fuente de los datos.
+
+Utiliza campos nulos cuando la información no aparezca.
+
+No inventes valores.
+
+Distingue entre datos presentes literalmente y datos derivados mediante reglas de normalización.
+
+### Ejemplo de JSON esperado para el fixture
+
+```json
+{
+  "source": "crawio_reference_fixture",
+  "listing_id": "112909923",
+  "operation": "rent",
+  "property_type": "piso",
+  "title": "Alquiler de piso en Goya",
+  "location": {
+    "district": "Barrio de Salamanca",
+    "city": "Madrid"
+  },
+  "price": {
+    "amount": 4250,
+    "currency": "EUR",
+    "period": "month"
+  },
+  "area_built_m2": 145,
+  "bedrooms": 3,
+  "bathrooms": 3,
+  "floor": 2,
+  "exterior": true,
+  "elevator": true,
+  "advertiser": "Atlanta Select Real Estate"
+}
+```
+
+Este JSON es una referencia de validación basada en el archivo proporcionado.
+
+No lo utilices como respuesta fija del producto.
+
+El parser debe producirlo a partir del HTML y debe funcionar con otros documentos compatibles.
+
+### Pruebas del parser
+
+Implementa tests que verifiquen:
+
+1. Extracción del título.
+2. Extracción y normalización del precio.
+3. Superficie.
+4. Habitaciones.
+5. Baños.
+6. Ubicación.
+7. Descripción.
+8. Fotografías.
+9. Anunciante.
+10. Manejo de campos ausentes.
+11. HTML incompleto.
+12. HTML inválido.
+13. Ausencia de contenido inmobiliario.
+14. Codificación y caracteres especiales.
+
+No des por aprobado un test mediante valores hardcodeados que no procedan del HTML.
+
+---
+
+## 6. PRUEBA A — WEB CONVENCIONAL
+
+URL:
+
+https://www.bcousinoprop.com/
+
+### Objetivo
+
+Comprobar el funcionamiento real de la extracción web en una página convencional.
+
+Esta es la primera prueba de extracción en vivo que debes priorizar.
+
+### Contenido de referencia
+
+- Benjamín Cousiño Propiedades.
+- Vidas Extraordinarias en Lugares Excepcionales.
+- Servicios inmobiliarios en España y Chile.
+
+Los textos anteriores son referencias y pueden variar si la web cambia.
+
+### Pruebas obligatorias
+
+Ejecuta una solicitud real mediante HTTP.
+
+Después ejecuta una solicitud real utilizando Playwright.
+
+Registra:
+
+- URL solicitada.
+- URL final.
+- Código HTTP.
+- Motor utilizado.
+- Título.
+- HTML.
+- Texto visible.
+- Metadescripción.
+- Enlaces.
+- Tamaño de respuesta.
+- Tiempo de ejecución.
+- Errores.
+
+Compara HTTP frente a Playwright.
+
+### Criterio de éxito
+
+La prueba será satisfactoria únicamente si:
+
+1. La solicitud se ejecuta realmente.
+2. Se obtiene contenido útil.
+3. El contenido corresponde a la web solicitada.
+4. Los datos se extraen del HTML recibido.
+5. El resultado JSON es válido.
+6. El Playground muestra los datos.
+7. Se pueden copiar y descargar los resultados.
+
+Un HTTP 200 sin contenido útil no es suficiente.
+
+---
+
+## 7. PRUEBA B — WEB PROTEGIDA POR DATADOME
+
+URL EXACTA:
+
+https://www.idealista.com/inmueble/110868380/
+
+### Objetivo
+
+Evaluar el comportamiento del motor cuando una página está protegida por DataDome.
+
+### Datos de referencia
+
+- Operación: venta.
+- Ubicación: calle Alt de Gironella.
+- Barrio: Les Tres Torres.
+- Ciudad: Barcelona.
+- Precio de referencia: 1.915.000 €.
+- Superficie anunciada: 182 m².
+- Habitaciones: 4.
+
+Estos valor
+
+
+## Comentario del usuario (2026-11-14 02:16:21)
+
+CORRECCIÓN DE RUMBO — evita bucles y no edites a ciegas.
+
+1. No construyas ni investigues un “resolver” para evadir DataDome. Idealista queda BLOQUEADO con evidencia HTTP 403. No hagas más tráfico a Idealista ni uses servicios de CAPTCHA.
+2. Trabaja solo en clasificar desafíos, procesar fixtures autorizados/sanitizados y probar example.com + bcousinoprop.com.
+3. Antes de editar usa read_file y copia el fragmento exacto. Máximo 2 intentos para el mismo error; si se repite, registra el bloqueo y cambia de tarea.
+4. Usa exclusivamente /ProxyManager/.venv/bin/python y /ProxyManager/.venv/bin/pytest. No instales paquetes globalmente ni uses --break-system-packages.
+5. No reinicies ni mates procesos. El puerto 8002 ya está ocupado por el servicio válido; verifica health/http_check antes de tocarlo.
+6. No añadas otro servidor paralelo. Integra el Playground con la API FastAPI existente y con la función real proxymanager.fetch.fetch.
+7. Mantén Settings configurable: no fijes allowed_hosts ni expected_text como defaults; los tests deben inyectarlos.
+8. Elimina login admin/password, token falso y cualquier impresión de claves API.
+9. No presentes el fixture sintético como HTML real de Crawio. Documenta claramente su origen; si falta el archivo real, déjalo pendiente.
+10. Próximo bloque único: inspecciona la firma de proxymanager.fetch.fetch y el endpoint /scrape; escribe primero un test que falle; corrige la integración; ejecuta .venv/bin/pytest -q.
+11. Antes de terminar: crea una rama de trabajo desde el estado actual (no publiques directo en main), ejecuta git diff --check, escaneo de secretos y la suite completa. No hagas commit/push si algo falla. Informa por separado implementado, probado y pendiente.
