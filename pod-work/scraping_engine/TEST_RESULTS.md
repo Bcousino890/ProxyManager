@@ -667,3 +667,315 @@ from s` → OK: 0 aprobadas, 0 falladas/errores (exit 0)
   FAILED tests/unit/test_diagnostics.py::test_response_classifier_empty_content
   !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
   1 failed, 4 passed in 0.18s
+- 2026-11-14 03:51:32 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 4 aprobadas, 1 falladas/errores (exit 1)
+  ....F
+  =================================== FAILURES ===================================
+  ____________________ test_response_classifier_empty_content ____________________
+  tests/unit/test_diagnostics.py:79: in test_response_classifier_empty_content
+      assert classification.is_content_valid is False
+  E  
+  …[103 caracteres omitidos]…
+  tatus_code=200).is_content_valid
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_empty_content
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 4 passed in 0.19s
+- 2026-11-14 03:52:32 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 4 aprobadas, 1 falladas/errores (exit 1)
+  ....F
+  =================================== FAILURES ===================================
+  ____________________ test_response_classifier_empty_content ____________________
+  tests/unit/test_diagnostics.py:79: in test_response_classifier_empty_content
+      assert classification.is_content_valid is False
+  E  
+  …[103 caracteres omitidos]…
+  tatus_code=200).is_content_valid
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_empty_content
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 4 passed in 0.18s
+- 2026-11-14 03:52:52 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 4 aprobadas, 1 falladas/errores (exit 1)
+  ....F
+  =================================== FAILURES ===================================
+  ____________________ test_response_classifier_empty_content ____________________
+  tests/unit/test_diagnostics.py:79: in test_response_classifier_empty_content
+      assert classification.is_content_valid is False
+  E  
+  …[103 caracteres omitidos]…
+  tatus_code=200).is_content_valid
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_empty_content
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 4 passed in 0.18s
+- 2026-11-14 03:53:19 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 4 aprobadas, 1 falladas/errores (exit 1)
+  ....F
+  =================================== FAILURES ===================================
+  ____________________ test_response_classifier_empty_content ____________________
+  tests/unit/test_diagnostics.py:79: in test_response_classifier_empty_content
+      assert classification.is_content_valid is False
+  E  
+  …[103 caracteres omitidos]…
+  tatus_code=200).is_content_valid
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_empty_content
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 4 passed in 0.19s
+- 2026-11-14 03:53:37 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  ______________________ test_response_classifier_datadome _______________________
+  tests/unit/test_diagnostics.py:65: in test_response_classifier_datadome
+      assert classification.is_accessible is False
+  E   assert T
+  …[106 caracteres omitidos]…
+  tatus_code=403).is_accessible
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_datadome - as...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed in 0.18s
+- 2026-11-14 03:53:48 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  ______________________ test_response_classifier_datadome _______________________
+  tests/unit/test_diagnostics.py:65: in test_response_classifier_datadome
+      assert classification.is_accessible is False
+  E   assert T
+  …[106 caracteres omitidos]…
+  tatus_code=403).is_accessible
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_datadome - as...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed in 0.19s
+- 2026-11-14 03:54:08 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  ______________________ test_response_classifier_datadome _______________________
+  tests/unit/test_diagnostics.py:65: in test_response_classifier_datadome
+      assert classification.is_accessible is False
+  E   assert T
+  …[106 caracteres omitidos]…
+  tatus_code=403).is_accessible
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_datadome - as...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed in 0.19s
+- 2026-11-14 03:54:47 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  ______________________ test_response_classifier_datadome _______________________
+  tests/unit/test_diagnostics.py:65: in test_response_classifier_datadome
+      assert classification.is_accessible is False
+  E   assert T
+  …[106 caracteres omitidos]…
+  tatus_code=403).is_accessible
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_datadome - as...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed in 0.18s
+- 2026-11-14 03:55:00 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 4 aprobadas, 1 falladas/errores (exit 1)
+  ....F
+  =================================== FAILURES ===================================
+  ____________________ test_response_classifier_empty_content ____________________
+  tests/unit/test_diagnostics.py:80: in test_response_classifier_empty_content
+      assert len(classification.evidence) > 0
+  E   Attribu
+  …[36 caracteres omitidos]…
+  ject has no attribute 'evidence'
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_empty_content
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 4 passed in 0.19s
+- 2026-11-14 03:55:14 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 4 aprobadas, 1 falladas/errores (exit 1)
+  ....F
+  =================================== FAILURES ===================================
+  ____________________ test_response_classifier_empty_content ____________________
+  tests/unit/test_diagnostics.py:80: in test_response_classifier_empty_content
+      assert len(classification.evidence) > 0
+  E   assert 
+  …[105 caracteres omitidos]…
+  , http_status_code=200).evidence
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_empty_content
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 4 passed in 0.20s
+- 2026-11-14 03:55:27 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 5 aprobadas, 1 falladas/errores (exit 1)
+  .....F
+  =================================== FAILURES ===================================
+  ______________________ test_protection_detector_detection ______________________
+  tests/unit/test_diagnostics.py:89: in test_protection_detector_detection
+      classification = ResponseClassification(
+  E   TypeError
+  …[51 caracteres omitidos]…
+  ed keyword argument 'content'
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_protection_detector_detection - T...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 5 passed in 0.18s
+- 2026-11-14 03:55:40 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 5 aprobadas, 1 falladas/errores (exit 1)
+  .....F
+  =================================== FAILURES ===================================
+  ______________________ test_protection_detector_detection ______________________
+  tests/unit/test_diagnostics.py:97: in test_protection_detector_detection
+      result = detector.detect(classification, classificatio
+  …[75 caracteres omitidos]…
+  ect has no attribute 'detect'
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_protection_detector_detection - A...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 5 passed in 0.19s
+- 2026-11-14 03:55:52 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 5 aprobadas, 1 falladas/errores (exit 1)
+  .....F
+  =================================== FAILURES ===================================
+  ______________________ test_protection_detector_detection ______________________
+  tests/unit/test_diagnostics.py:104: in test_protection_detector_detection
+      assert result.is_protected is True
+  E   AttributeError
+  …[114 caracteres omitidos]…
+  ===================
+  FAILED tests/unit/test_diagnostics.py::test_protection_detector_detection - A...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 5 passed in 0.19s
+  
+  sys:1: RuntimeWarning: coroutine 'ProtectionDetector.detect_protection' was never awaited
+- 2026-11-14 03:56:04 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  ==================================== ERRORS ====================================
+  ___ ERROR collecting pod-work/scraping_engine/tests/unit/test_diagnostics.py ___
+  .venv/lib/python3.12/site-packages/_pytest/python.py:617: in _importtestmodule
+      mod = import_path(self.path, mode=importmode, root=self
+  …[917 caracteres omitidos]…
+  detect_protection(
+  E                
+  E   SyntaxError: 'await' outside async function
+  =========================== short test summary info ============================
+  ERROR tests/unit/test_diagnostics.py
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 error in 0.12s
+- 2026-11-14 03:56:30 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  ==================================== ERRORS ====================================
+  ___ ERROR collecting pod-work/scraping_engine/tests/unit/test_diagnostics.py ___
+  .venv/lib/python3.12/site-packages/_pytest/python.py:617: in _importtestmodule
+      mod = import_path(self.path, mode=importmode, root=self
+  …[917 caracteres omitidos]…
+  detect_protection(
+  E                
+  E   SyntaxError: 'await' outside async function
+  =========================== short test summary info ============================
+  ERROR tests/unit/test_diagnostics.py
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 error in 0.12s
+- 2026-11-14 03:56:51 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  ==================================== ERRORS ====================================
+  ___ ERROR collecting pod-work/scraping_engine/tests/unit/test_diagnostics.py ___
+  .venv/lib/python3.12/site-packages/_pytest/python.py:617: in _importtestmodule
+      mod = import_path(self.path, mode=importmode, root=self
+  …[917 caracteres omitidos]…
+  detect_protection(
+  E                
+  E   SyntaxError: 'await' outside async function
+  =========================== short test summary info ============================
+  ERROR tests/unit/test_diagnostics.py
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 error in 0.13s
+- 2026-11-14 03:57:12 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 2 aprobadas, 1 falladas/errores (exit 1)
+  ..F
+  =================================== FAILURES ===================================
+  ________________________ test_response_classifier_basic ________________________
+  tests/unit/test_diagnostics.py:33: in test_response_classifier_basic
+      classification = classifier.classify_response(**response)
+  E  
+  …[70 caracteres omitidos]…
+  eyword argument 'status_code'
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_basic - TypeE...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 2 passed in 0.18s
+- 2026-11-14 03:57:25 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 2 aprobadas, 1 falladas/errores (exit 1)
+  ..F
+  =================================== FAILURES ===================================
+  ________________________ test_response_classifier_basic ________________________
+  tests/unit/test_diagnostics.py:33: in test_response_classifier_basic
+      classification = classifier.classify_response(**response)
+  E  
+  …[70 caracteres omitidos]…
+  eyword argument 'status_code'
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_basic - TypeE...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 2 passed in 0.17s
+- 2026-11-14 03:57:43 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 2 aprobadas, 1 falladas/errores (exit 1)
+  ..F
+  =================================== FAILURES ===================================
+  ________________________ test_response_classifier_basic ________________________
+  tests/unit/test_diagnostics.py:38: in test_response_classifier_basic
+      assert classification.content_length == 34
+  E   assert None ==
+  …[86 caracteres omitidos]…
+  atus_code=200).content_length
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_basic - asser...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 2 passed in 0.17s
+- 2026-11-14 03:57:54 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 2 aprobadas, 1 falladas/errores (exit 1)
+  ..F
+  =================================== FAILURES ===================================
+  ________________________ test_response_classifier_basic ________________________
+  tests/unit/test_diagnostics.py:38: in test_response_classifier_basic
+      assert classification.content_length == 34
+  E   assert None ==
+  …[86 caracteres omitidos]…
+  atus_code=200).content_length
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_basic - asser...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 2 passed in 0.17s
+- 2026-11-14 03:58:23 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 2 aprobadas, 1 falladas/errores (exit 1)
+  ..F
+  =================================== FAILURES ===================================
+  ________________________ test_response_classifier_basic ________________________
+  tests/unit/test_diagnostics.py:38: in test_response_classifier_basic
+      assert classification.content_length == 34
+  E   assert None ==
+  …[86 caracteres omitidos]…
+  atus_code=200).content_length
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_basic - asser...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 2 passed in 0.17s
+- 2026-11-14 03:58:42 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 2 aprobadas, 1 falladas/errores (exit 1)
+  ..F
+  =================================== FAILURES ===================================
+  ________________________ test_response_classifier_basic ________________________
+  tests/unit/test_diagnostics.py:38: in test_response_classifier_basic
+      assert classification.content_length == 34
+  E   assert None ==
+  …[86 caracteres omitidos]…
+  atus_code=200).content_length
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_basic - asser...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 2 passed in 0.17s
+- 2026-11-14 03:59:06 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 2 aprobadas, 1 falladas/errores (exit 1)
+  ..F
+  =================================== FAILURES ===================================
+  ________________________ test_response_classifier_basic ________________________
+  tests/unit/test_diagnostics.py:38: in test_response_classifier_basic
+      assert classification.content_length == 34
+  E   assert None ==
+  …[86 caracteres omitidos]…
+  atus_code=200).content_length
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_basic - asser...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 2 passed in 0.17s
+- 2026-11-14 04:00:20 `/ProxyManager/pod-work/scraping_engine/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 2 aprobadas, 1 falladas/errores (exit 1)
+  ..F
+  =================================== FAILURES ===================================
+  ________________________ test_response_classifier_basic ________________________
+  tests/unit/test_diagnostics.py:38: in test_response_classifier_basic
+      assert classification.content_length == 34
+  E   assert None ==
+  …[86 caracteres omitidos]…
+  atus_code=200).content_length
+  =========================== short test summary info ============================
+  FAILED tests/unit/test_diagnostics.py::test_response_classifier_basic - asser...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 2 passed in 0.18s
