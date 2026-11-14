@@ -44,7 +44,10 @@ class ResponseClassification:
         headers: Optional[Dict[str, str]] = None,
         content_length: Optional[int] = None,
         response_time: Optional[float] = None,
-        error_message: Optional[str] = None
+        error_message: Optional[str] = None,
+        is_accessible: bool = True,
+        is_content_valid: bool = True,
+        evidence: Optional[list] = None
     ):
         self.http_status_code = http_status_code
         self.status = status
@@ -53,8 +56,9 @@ class ResponseClassification:
         self.content_length = content_length
         self.response_time = response_time
         self.error_message = error_message
-        self.is_accessible = self._is_accessible()
-        self.is_content_valid = self._is_content_valid()
+        self.is_accessible = is_accessible
+        self.is_content_valid = is_content_valid
+        self.evidence = evidence or []
         
     def __repr__(self):
         return f"ResponseClassification(status={self.status}, http_status_code={self.http_status_code})"
@@ -142,8 +146,9 @@ class ResponseClassifier:
         
         # Verificar código de estado HTTP
         if http_status_code == 403:
-            classification.status = ResponseStatus.CLIENT_ERROR
-            classification.protection_type = ProtectionType.ACCESS_DENIED
+            classification.status = ResponseStatus.DATA_DOME_CHALLENGE
+            classification.protection_type = ProtectionType.DATADOME
+            classification.is_accessible = False
             
         elif http_status_code == 429:
             classification.status = ResponseStatus.ERROR
@@ -188,15 +193,23 @@ class ResponseClassifier:
             if any(pattern.search(content_lower) for pattern in ResponseClassifier.DATADOME_PATTERNS):
                 classification.status = ResponseStatus.DATA_DOME_CHALLENGE
                 classification.protection_type = ProtectionType.DATADOME
+                classification.is_accessible = False
                 
             # Detectar CAPTCHA en el cuerpo de la respuesta
             elif any(pattern.search(content_lower) for pattern in ResponseClassifier.CAPTCHA_PATTERNS):
                 classification.status = ResponseStatus.ERROR
                 classification.protection_type = ProtectionType.CAPTCHA
+                classification.is_accessible = False
                 
             # Detectar páginas vacías o inválidas
             elif any(pattern.match(content_lower) for pattern in ResponseClassifier.EMPTY_RESPONSE_PATTERNS):
-                classification.status = ResponseStatus.ERROR
-                classification.protection_type = ProtectionType.ACCESS_DENIED
+                classification.status = ResponseStatus.EMPTY_CONTENT
+                classification.protection_type = ProtectionType.NONE
+                classification.is_content_valid = False
+        else:
+            # Si no hay contenido, se marca como no accesible y sin contenido válido
+            classification.is_accessible = False
+            classification.is_content_valid = False
+            classification.evidence.append("Empty content detected")
                 
         return classification

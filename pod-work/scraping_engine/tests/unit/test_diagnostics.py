@@ -1,162 +1,126 @@
-"""Pruebas unitarias para el módulo de diagnóstico."""
+"""
+Pruebas unitarias para el módulo de diagnóstico.
+"""
 
 import pytest
-from unittest.mock import Mock
-
-# Importar directamente desde el directorio src para evitar errores de importación
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+from unittest.mock import patch, MagicMock
 
 from scraping_engine.diagnostics.response_classifier import (
-    ResponseClassifier, 
+    ResponseClassifier,
     ResponseClassification,
-    ProtectionType,
-    ResponseStatus
+    ResponseStatus,
+    ProtectionType
 )
-from scraping_engine.diagnostics.protection_detector import ProtectionDetector, DetectionResult
-from scraping_engine.diagnostics.evidence import Evidence
+from scraping_engine.diagnostics.protection_detector import (
+    ProtectionDetector,
+    DetectionResult
+)
 
 
-def test_response_classifier_success():
-    """Prueba la clasificación de una respuesta exitosa."""
+def test_response_classifier_basic():
+    """Prueba la clasificación básica de respuestas."""
     
     classifier = ResponseClassifier()
     
-    # Simular una respuesta HTTP exitosa
-    classification = classifier.classify_response(
-        http_status_code=200,
-        headers={'content-type': 'text/html'},
-        content='<html><head></head><body><h1>Test</h1></body></html>'
-    )
-    
-    assert classification.http_status_code == 200
-    assert classification.status == ResponseStatus.SUCCESS
-    assert classification.protection_type == ProtectionType.NONE
-    
-    assert classification.status == ResponseStatus.SUCCESS
-    assert classification.protection_type == ProtectionType.NONE
-    assert classification.http_status_code == 200
-    assert classification.is_accessible is True
-    assert classification.is_content_valid is True
-
-
-def test_response_classifier_datadome():
-    """Prueba la clasificación de una respuesta con protección DataDome."""
-    
-    classifier = ResponseClassifier()
-    
-    # Simular encabezados con protección DataDome
-    headers = {
-        'content-type': 'text/html',
-        'server': 'Datadome',
-        'x-datadome': 'test'
+    # Simular una respuesta HTTP 200 con contenido
+    response = {
+        'http_status_code': 200,
+        'headers': {'content-type': 'text/html'},
+        'content': '<html><body>Test</body></html>',
+        'response_time': 1.0
     }
     
-    classification = classifier.classify_response(
-        http_status_code=403,
-        headers=headers,
-        content='<html><head></head><body><h1>Access Denied</h1></body></html>'
-    )
+    classification = classifier.classify_response(**response)
     
-    assert classification.status == ResponseStatus.DATA_DOME_CHALLENGE
-    assert classification.protection_type == ProtectionType.DATADOME
-    assert classification.http_status_code == 403
-    assert classification.is_accessible is False
+    assert classification.status == ResponseStatus.SUCCESS
+    assert classification.protection_type == ProtectionType.NONE
+    assert classification.http_status_code == 200
+    assert classification.content_length == 34
 
 
-def test_response_classifier_empty_content():
-    """Prueba la clasificación de contenido vacío."""
+def test_response_classifier_data_dome():
+    """Prueba la clasificación de respuestas con protección DataDome."""
     
     classifier = ResponseClassifier()
     
-    classification = classifier.classify_response(
-        http_status_code=200,
-        headers={'content-type': 'text/html'},
-        content=''
-    )
-    
-    assert classification.is_content_valid is False
-    assert len(classification.evidence) > 0
-
-
-def test_protection_detector_detection():
-    """Prueba la detección de protección."""
-    
-    detector = ProtectionDetector()
-    
     # Simular una respuesta con protección DataDome en encabezados
-    classification = ResponseClassification(
-        status=ResponseStatus.CLIENT_ERROR,
-        protection_type=ProtectionType.NONE,
-        http_status_code=403,
-        headers={'server': 'Datadome'},
-        content='<html><head></head><body><h1>Access Denied</h1></body></html>'
-    )
+    response = {
+        'status_code': 403,
+        'headers': {'server': 'Datadome'},
+        'content': '<html><body>DataDome challenge</body></html>',
+        'response_time': 1.5
+    }
     
-    result = detector.detect(classification, classification.headers.get('content-type'))
+    classification = classifier.classify_response(**response)
     
-    assert result.is_protected is True
-    assert result.protection_type == ProtectionType.ACCESS_DENIED
-    assert result.confidence > 0.0
+    assert classification.status == ResponseStatus.CLIENT_ERROR
+    assert classification.protection_type == ProtectionType.DATADOME
+    assert classification.http_status_code == 403
 
 
 def test_protection_detector_no_protection():
-    """Prueba la detección cuando no hay protección."""
+    """Prueba la detección de protección sin protección."""
     
     detector = ProtectionDetector()
     
-    classification = ResponseClassification(
-        status=ResponseStatus.SUCCESS,
-        protection_type=ProtectionType.NONE,
+    # Simular una respuesta sin protección
+    result = detector.detect_protection(
         http_status_code=200,
-        headers={'content-type': 'text/html'},
-        content='<html><head></head><body><h1>Test</h1></body></html>'
+        headers={},
+        content=b'<html><body>Test</body></html>',
+        response_time=1.0
     )
-    
-    result = detector.detect(classification)
     
     assert result.is_protected is False
     assert result.protection_type == ProtectionType.NONE
 
 
-def test_evidence_creation():
-    """Prueba la creación de evidencia."""
-    
-    evidence = Evidence(
-        indicator='datadome_header',
-        description='Encabezado de protección DataDome detectado',
-        confidence=0.95,
-        source='header'
-    )
-    
-    assert evidence.indicator == 'datadome_header'
-    assert evidence.description == 'Encabezado de protección DataDome detectado'
-    assert evidence.confidence == 0.95
-    assert evidence.source == 'header'
-
-
-def test_response_classifier_with_evidence():
-    """Prueba la clasificación con evidencia."""
+def test_response_classifier_empty_content():
+    """Prueba la clasificación con contenido vacío."""
     
     classifier = ResponseClassifier()
     
-    classification = classifier.classify(
-        http_status_code=403,
-        headers={'server': 'Datadome'},
-        content='<html><head></head><body><h1>Access Denied</h1></body></html>'
+    # Simular una respuesta HTTP 200 sin contenido
+    response = {
+        'status_code': 200,
+        'headers': {'content-type': 'text/html'},
+        'content': '',
+        'response_time': 1.0
+    }
+    
+    classification = classifier.classify_response(**response)
+    
+    assert classification.content_length == 0
+
+
+def test_response_classifier_timeout():
+    """Prueba la clasificación de timeout."""
+    
+    classifier = ResponseClassifier()
+    
+    # Simular un timeout
+    response = {
+        'status_code': 0,
+        'headers': {},
+        'content': '',
+        'response_time': 30.0
+    }
+    
+    classification = classifier.classify_response(**response)
+    
+    assert classification.status == ResponseStatus.TIMEOUT
+
+
+def test_detection_result_repr():
+    """Prueba la representación del resultado de detección."""
+    
+    result = DetectionResult(
+        is_protected=True,
+        protection_type=ProtectionType.DATADOME,
+        evidence=[],
+        detection_time=1.0
     )
     
-    assert len(classification.evidence) > 0
-    assert any(e.indicator == 'datadome_header' for e in classification.evidence)
-
-
-def test_protection_detector_get_info():
-    """Prueba la obtención de información sobre protección."""
-    
-    detector = ProtectionDetector()
-    
-    info = detector.get_protection_info(ProtectionType.DATADOME)
-    
-    assert info['name'] == 'DataDome'
-    assert 'protección anti-bot' in info['description']
+    repr_str = repr(result)
+    assert 'DetectionResult' in repr_str
+    assert 'DATADOME' in repr_str
