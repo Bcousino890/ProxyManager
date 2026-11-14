@@ -369,3 +369,240 @@
   FAILED tests/test_api.py::test_scrape_classification_and_destination_guard - ...
   !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
   1 failed, 3 passed, 1 warning in 0.69s
+- 2026-11-14 02:45:51 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  _______________ test_scrape_classification_and_destination_guard _______________
+  tests/test_api.py:54: in test_scrape_classification_and_destination_guard
+      assert client.post("/scrape", headers=headers, json={"u
+  …[5302 caracteres omitidos]…
+  ture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_scrape_classification_and_destination_guard - ...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed, 1 warning in 0.80s
+- 2026-11-14 02:46:16 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  _______________ test_scrape_classification_and_destination_guard _______________
+  tests/test_api.py:54: in test_scrape_classification_and_destination_guard
+      assert client.post("/scrape", headers=headers, json={"u
+  …[5302 caracteres omitidos]…
+  ture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_scrape_classification_and_destination_guard - ...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed, 1 warning in 0.78s
+- 2026-11-14 02:46:42 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  _______________ test_scrape_classification_and_destination_guard _______________
+  tests/test_api.py:54: in test_scrape_classification_and_destination_guard
+      assert client.post("/scrape", headers=headers, json={"u
+  …[5302 caracteres omitidos]…
+  ture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_scrape_classification_and_destination_guard - ...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed, 1 warning in 0.68s
+- 2026-11-14 02:47:09 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  _______________ test_scrape_classification_and_destination_guard _______________
+  tests/test_api.py:54: in test_scrape_classification_and_destination_guard
+      assert client.post("/scrape", headers=headers, json={"u
+  …[5302 caracteres omitidos]…
+  ture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_scrape_classification_and_destination_guard - ...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed, 1 warning in 0.67s
+- 2026-11-14 02:47:23 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  _______________ test_scrape_classification_and_destination_guard _______________
+  tests/test_api.py:54: in test_scrape_classification_and_destination_guard
+      assert client.post("/scrape", headers=headers, json={"u
+  …[5302 caracteres omitidos]…
+  ture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_scrape_classification_and_destination_guard - ...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed, 1 warning in 0.71s
+- 2026-11-14 02:48:06 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  _______________ test_scrape_classification_and_destination_guard _______________
+  tests/test_api.py:54: in test_scrape_classification_and_destination_guard
+      assert client.post("/scrape", headers=headers, json={"u
+  …[5302 caracteres omitidos]…
+  ture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_scrape_classification_and_destination_guard - ...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed, 1 warning in 0.68s
+- 2026-11-14 02:48:32 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  _______________ test_scrape_classification_and_destination_guard _______________
+  tests/test_api.py:54: in test_scrape_classification_and_destination_guard
+      assert client.post("/scrape", headers=headers, json={"u
+  …[5302 caracteres omitidos]…
+  ture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_scrape_classification_and_destination_guard - ...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed, 1 warning in 0.72s
+- 2026-11-14 02:49:02 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 3 aprobadas, 1 falladas/errores (exit 1)
+  ...F
+  =================================== FAILURES ===================================
+  _______________ test_scrape_classification_and_destination_guard _______________
+  tests/test_api.py:54: in test_scrape_classification_and_destination_guard
+      assert client.post("/scrape", headers=headers, json={"u
+  …[5302 caracteres omitidos]…
+  ture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_scrape_classification_and_destination_guard - ...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 3 passed, 1 warning in 0.69s
+- 2026-11-14 02:49:18 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:20: in test_health_and_auth
+      assert client.get("/v1/system", headers={"X-API-Key": "eval-secret"}).status_code == 2
+  …[736 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - AssertionError: assert 401 =...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.45s
+- 2026-11-14 02:49:40 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:20: in test_health_and_auth
+      assert client.get("/v1/system", headers={"X-API-Key": "eval-secret"}).status_code == 2
+  …[736 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - AssertionError: assert 401 =...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.42s
+- 2026-11-14 02:50:01 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  ==================================== ERRORS ====================================
+  ______________________ ERROR collecting tests/test_api.py ______________________
+  tests/test_api.py:5: in <module>
+      from proxymanager.app import create_app
+  src/proxymanager/app.py:176: in <module>
+      app = create_app
+  …[648 caracteres omitidos]…
+  .org/en/stable/how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  ERROR tests/test_api.py - NameError: name 'Request' is not defined
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 warning, 1 error in 0.41s
+- 2026-11-14 02:50:23 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:18: in test_health_and_auth
+      assert client.get("/health").json()["service"] == "ProxyManager"
+             ^^^^^^^^^^
+  …[3212 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - NameError: name 'Response' i...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.54s
+- 2026-11-14 02:50:37 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:18: in test_health_and_auth
+      assert client.get("/health").json()["service"] == "ProxyManager"
+             ^^^^^^^^^^
+  …[1110 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - json.decoder.JSONDecodeError...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.44s
+- 2026-11-14 02:51:03 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:18: in test_health_and_auth
+      assert client.get("/health").json()["service"] == "ProxyManager"
+             ^^^^^^^^^^
+  …[1110 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - json.decoder.JSONDecodeError...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.44s
+- 2026-11-14 02:51:28 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:18: in test_health_and_auth
+      assert client.get("/health").json()["service"] == "ProxyManager"
+             ^^^^^^^^^^
+  …[1110 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - json.decoder.JSONDecodeError...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.43s
+- 2026-11-14 02:52:00 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:18: in test_health_and_auth
+      assert client.get("/health").json()["service"] == "ProxyManager"
+             ^^^^^^^^^^
+  …[1110 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - json.decoder.JSONDecodeError...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.46s
+- 2026-11-14 02:53:18 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:18: in test_health_and_auth
+      assert client.get("/health").json()["service"] == "ProxyManager"
+             ^^^^^^^^^^
+  …[1110 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - json.decoder.JSONDecodeError...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.44s
+- 2026-11-14 02:53:35 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:18: in test_health_and_auth
+      assert client.get("/health").json()["service"] == "ProxyManager"
+             ^^^^^^^^^^
+  …[1110 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - json.decoder.JSONDecodeError...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.59s
+- 2026-11-14 02:54:01 `/ProxyManager/.venv/bin/python -m pytest -q -x --tb=short` → FALLÓ: 0 aprobadas, 1 falladas/errores (exit 1)
+  F
+  =================================== FAILURES ===================================
+  _____________________________ test_health_and_auth _____________________________
+  tests/test_api.py:18: in test_health_and_auth
+      assert client.get("/health").json()["service"] == "ProxyManager"
+             ^^^^^^^^^^
+  …[1110 caracteres omitidos]…
+  how-to/capture-warnings.html
+  =========================== short test summary info ============================
+  FAILED tests/test_api.py::test_health_and_auth - json.decoder.JSONDecodeError...
+  !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+  1 failed, 1 warning in 0.48s

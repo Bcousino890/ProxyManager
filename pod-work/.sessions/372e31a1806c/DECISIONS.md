@@ -10,3 +10,4 @@
   3. Validación funcional del Playground y panel de scraping
 
 - 2026-11-14 02:11:17: Se ha decidido continuar con el desarrollo de funcionalidades secundarias mientras se investiga el problema de importación del motor de scraping, ya que el panel está funcionando.
+- 2026-11-14 02:43:00 Criterio anterior retirado (tarea nueva; reactivable): Ejecutar una petición/extracción real contra una URL de Idealista y reportar el resultado 

@@ -1450,3 +1450,75 @@ https://www.idealista.com/inmueble/113070773/
 https://www.idealista.com/inmueble/113072210/
 https://www.idealista.com/inmueble/111127479/ 
 si necesitas mas pidemelas
+
+
+## Instrucción del usuario (2026-11-14 02:43:00)
+
+puedes trabajar con CAMBIO DE PRIORIDAD ABSOLUTA — IDEALISTA
+
+El objetivo principal del proyecto es conseguir datos inmobiliarios reales de Idealista mediante un acceso autorizado y fiable.
+
+DETÉN EL DESARROLLO DE FUNCIONALIDADES SECUNDARIAS.
+
+No quiero más trabajo en diseño, dashboards, estadísticas, suscripciones ni mejoras visuales.
+
+Conserva y protege todo el código desarrollado.
+
+Repositorios y avances deben seguir guardándose en GitHub.
+
+OBJETIVO PRINCIPAL:
+
+Investigar por qué nuestra infraestructura no puede acceder al contenido real de Idealista mientras Crawio ha demostrado obtenerlo.
+
+URL DE REFERENCIA:
+
+https://www.idealista.com/inmueble/112909923/
+
+RESULTADOS:
+
+Crawio:
+- HTTP 200.
+- HTML útil de aproximadamente 262,1 KB.
+- 830 ms en una ejecución observada.
+- 6 créditos.
+
+Nuestro motor:
+- HTTP 403.
+- Protección DataDome.
+- Ningún contenido útil.
+
+TRABAJO OBLIGATORIO:
+
+1. Audita el motor HTTP y Playwright existente.
+2. Verifica la configuración y conectividad de los 10 proxies Decodo mediante endpoints de diagnóstico autorizados.
+3. Identifica errores de red, TLS, sesiones y configuración que afecten al funcionamiento general.
+4. Construye pruebas reproducibles de protección antibots sobre un entorno propio o expresamente autorizado.
+5. Investiga las opciones oficiales de acceso a datos de Idealista y posibles acuerdos de licencia.
+6. Construye un parser inmobiliario utilizando el HTML de Crawio proporcionado como fixture.
+7. Valida la extracción de referencia, precio, superficie, habitaciones, baños, descripción, ubicación e imágenes.
+8. Distingue claramente contenido obtenido en vivo de datos procesados a partir de archivos de referencia.
+9. Documenta costes, limitaciones y rendimiento medido.
+10. Guarda el progreso mediante commits incrementales y push a GitHub.
+
+NO DECLARES ÉXITO POR UN HTTP 403.
+
+NO DECLARES ÉXITO POR PROCESAR UN ARCHIVO DE CRAWIO.
+
+NO REPITAS PETICIONES BLOQUEADAS INDEFINIDAMENTE.
+
+NO MODIFIQUES EL AGENTE DEL PUERTO 8787.
+
+NO PIERDAS TIEMPO CON UNA URL PÚBLICA.
+
+ENTREGA:
+
+- Diagnóstico técnico del bloqueo.
+- Estado de los proxies.
+- Resultado de las pruebas autorizadas.
+- Opciones de acceso a datos.
+- Parser funcional.
+- Coste estimado por anuncio útil.
+- Código publicado y probado.
+- Limitaciones que impiden alcanzar el resultado de Crawio.
+
+La finalidad es desarrollar una alternativa económicamente competitiva y técnicamente fiable, sin afirmar capacidades que no estén demostradas.

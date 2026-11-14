@@ -15,3 +15,5 @@
 - 2026-11-14 02:24:30 estancamiento (1): repites bash con los mismos argumentos y el resultado no ha cambiado
 - 2026-11-14 02:25:26 tarea 1 FALLIDO: No se pudo corregir el problema de autenticación con Idealista. El error persiste en la verificación de hosts permitidos.
 - 2026-11-14 02:28:44 estancamiento (1): repites run_tests con los mismos argumentos y el resultado no ha cambiado
+- 2026-11-14 02:52:28 Ollama no pudo interpretar la llamada a herramienta (1): HTTP 500: {"error":"XML syntax error on line 8: unexpected EOF"}
+- 2026-11-14 02:54:02 presupuesto de tiempo agotado
