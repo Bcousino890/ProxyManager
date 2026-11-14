@@ -540,7 +540,14 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
     msgs = conv["messages"]
     kit.repair_history(msgs)
     pod_rem = max(0, LIMIT_H * 3600 - pod_clock()["seconds"])
-    ag = kit.Agent(conv, emit, stop, legacy_exec, budget_s=int(budget_min * 60) if budget_min else None, pod_remaining_s=pod_rem, mode=mode)
+    if budget_min:       # el presupuesto que escribes tú manda; el límite del pod solo avisa (antes lo anulaba y toda tarea nueva terminaba al instante)
+        if pod_rem <= 0: emit({"type": "notice", "text": f"⚠ El reloj del pod ya superó el límite configurado ({LIMIT_H:g} h). Se respeta tu presupuesto de {budget_min:g} min; revisa el coste en RunPod."})
+        ag = kit.Agent(conv, emit, stop, legacy_exec, budget_s=int(budget_min * 60), pod_remaining_s=None, mode=mode)
+    else:
+        if pod_rem <= 0 and mode != "chat":
+            emit({"type": "error", "text": f"No hay presupuesto: el reloj del pod ({pod_clock()['seconds'] // 3600} h {pod_clock()['seconds'] % 3600 // 60} min) ya superó el límite de {LIMIT_H:g} h. Escribe un número de minutos en «Presupuesto» para continuar, o pulsa «Reiniciar reloj» si el pod se renovó."})
+            conv["run"] = {**(conv.get("run") or {}), "status": "budget", "updated": time.time()}; jsave(conv_path(conv["id"]), conv); return "budget"
+        ag = kit.Agent(conv, emit, stop, legacy_exec, budget_s=None, pod_remaining_s=pod_rem, mode=mode)
     RUNS_AGENT[conv["id"]] = ag
     first = next((m.get("display") or m["content"] for m in msgs if m["role"] == "user" and not m.get("hidden")), "")
     if mode == "agent" and not ag.project and len(first) >= 300:

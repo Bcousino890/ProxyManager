@@ -568,3 +568,16 @@ def test_broad_kill_commands_need_approval():
         assert srv.needs_approval("bash", {"command": c}), c
     assert not srv.needs_approval("bash", {"command": "echo hola && ls"})
     assert "NUNCA uses pkill" in srv.system_base()
+
+
+def test_explicit_budget_overrides_exhausted_pod_clock(monkeypatch):
+    """Incidente: el reloj del pod superó el límite (3h27 > 3h) y toda tarea nueva terminaba al instante con «presupuesto agotado»."""
+    monkeypatch.setattr(srv, "LIMIT_H", 1e-6)                                   # pod ya pasado del límite
+    SCRIPT[:] = [call("bash", command="echo con_presupuesto"), {"content": "hecho"}]
+    conv = {"id": "c%011x" % int(time.time() * 1000), "title": "t", "created": 0, "updated": 0, "messages": [{"role": "user", "content": "haz algo"}]}; ev = []
+    out = srv.agent_turn(conv, ev.append, threading.Event(), "agent", "m", budget_min=120)
+    assert out == "done" and any("superó el límite" in e.get("text", "") for e in ev)                # avisa, pero trabaja
+    assert any(m["role"] == "tool" and "con_presupuesto" in m["content"] for m in conv["messages"])
+    conv2 = {"id": "d%011x" % int(time.time() * 1000), "title": "t", "created": 0, "updated": 0, "messages": [{"role": "user", "content": "haz algo"}]}; ev2 = []
+    out2 = srv.agent_turn(conv2, ev2.append, threading.Event(), "agent", "m")
+    assert out2 == "budget" and any("Escribe un número de minutos" in e.get("text", "") for e in ev2)   # sin presupuesto: mensaje claro, no «agotado 0:00»
