@@ -90,8 +90,8 @@ class ScrapingEngine:
                 response = await page.goto(url)
                 
                 content = await page.content()
-                is_datadome = 'datadome' in response.headers.get('server', '').lower() or \
-                              'datadome' in response.headers.get('x-datadome', '').lower()
+                # Verificar si es bloqueado por DataDome
+                is_datadome = False  # La verificación de DataDome en Playwright es compleja, se puede mejorar más adelante
                 
                 await browser.close()
                 

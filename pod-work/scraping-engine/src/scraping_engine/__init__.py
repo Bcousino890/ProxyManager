@@ -1,3 +1,3 @@
-"""
-Motor de extracción web funcional con soporte para proxies y DataDome.
-"""
+from .engine import ScrapingEngine, WebScraper
+
+__all__ = ["ScrapingEngine", "WebScraper"]
