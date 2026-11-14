@@ -178,6 +178,9 @@ class Fake(BaseHTTPRequestHandler):
         item = SCRIPT.pop(0) if SCRIPT else {"content": "fin"}
         if item == "error500":
             self.send_response(500); self.end_headers(); return
+        if item == "parse500":
+            b_ = json.dumps({"error": "XML syntax error on line 8: unexpected EOF"}).encode()
+            self.send_response(500); self.send_header("Content-Length", str(len(b_))); self.end_headers(); self.wfile.write(b_); return
         self.send_response(200); self.send_header("Content-Type", "application/x-ndjson"); self.end_headers()
         msg = {"role": "assistant", "content": "" if item == "empty" else item.get("content", ""), **({"tool_calls": item["tool_calls"]} if item != "empty" and item.get("tool_calls") else {})}
         self.wfile.write((json.dumps({"message": msg, "done": True, "eval_count": 5, "eval_duration": 1e8, "prompt_eval_count": 100}) + "\n").encode())
@@ -392,3 +395,14 @@ def test_main_requires_explicit_confirmation_and_agent_push_policy():
     assert not srv.needs_approval("git_push", {}) and not srv.needs_approval("git_push", {"branch": "main"})   # rama configurada por el usuario
     assert srv.needs_approval("git_push", {"branch": "master"})                                              # otra protegida: aprobación
     srv.set_config({"branch": "work"}); assert srv.BRANCH == "work" and srv.needs_approval("git_push", {"branch": "main"})
+
+
+def test_recovery_ollama_tool_parse_500_is_not_fatal(monkeypatch):
+    """Caso real: qwen3-coder escribe un write_file enorme, Ollama responde 500 'XML syntax error'. Debe pedir contenido más pequeño y continuar."""
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    SCRIPT[:] = ["parse500", "parse500", "parse500", call("bash", command="echo trozo1"), {"content": "hecho"}]
+    out, conv, ev = run_turn()
+    assert out == "done" and any(m.get("hidden") and "NO se pudo interpretar" in m["content"] for m in conv["messages"])
+    assert any(m["role"] == "tool" and "trozo1" in m["content"] for m in conv["messages"])
+    SCRIPT[:] = ["parse500"] * 12
+    out, conv, ev = run_turn(); assert out == "blocked" and any("4 veces" in e.get("text", "") for e in ev)

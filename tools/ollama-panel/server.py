@@ -458,13 +458,20 @@ def looks_english(text):
     return len(w) > 25 and en > es * 1.3
 CODE_EXT = (".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".c", ".cpp", ".sh", ".rb", ".php")
 
-def stream_ollama(view, emit, stop, model, tools=True, think=False):
-    opts = {"num_ctx": NUM_CTX, "temperature": 0.6 if think else 0.2, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05, "num_predict": NUM_PREDICT}
+def stream_ollama(view, emit, stop, model, tools=True, think=False, temp=None, seed=None):
+    opts = {"num_ctx": NUM_CTX, "temperature": temp if temp is not None else (0.6 if think else 0.2), "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05, "num_predict": NUM_PREDICT, **({"seed": seed} if seed is not None else {})}
     body = json.dumps({"model": model, "messages": view, **({"tools": TOOLS} if tools else {}), "stream": True,
                        "options": opts, "keep_alive": "2h", **({"think": True} if think else {})}).encode()
     req = urllib.request.Request(OLLAMA + "/api/chat", body, {"Content-Type": "application/json"})
     content, calls, stats, thinking = "", [], {}, ""
-    with urllib.request.urlopen(req, timeout=300) as r:
+    try:
+        r_ = urllib.request.urlopen(req, timeout=300)
+    except urllib.error.HTTPError as e:
+        body_ = ""
+        try: body_ = e.read().decode("utf-8", "replace")[:300]
+        except Exception: pass
+        raise RuntimeError(f"HTTP {e.code}: {body_ or e.reason}")
+    with r_ as r:
         for line in r:
             if stop.is_set():
                 break
@@ -488,21 +495,35 @@ def stream_ollama(view, emit, stop, model, tools=True, think=False):
     stats["thinking"] = thinking
     return content, calls, stats
 
+PARSE_FAIL = re.compile(r"tool call pars|XML syntax|unexpected EOF|invalid character|parsing failed", re.I)
+SPLIT_HINT = ("[AVISO DEL SISTEMA: tu llamada a herramienta anterior NO se pudo interpretar (XML/JSON truncado o mal formado) y se perdió. "
+              "Vuelve a intentarlo con contenido MÁS PEQUEÑO: escribe archivos grandes en varios write_file de máximo ~120 líneas (o crea el esqueleto y añade con edit_file), "
+              "sin texto largo antes de la llamada y sin dejar etiquetas sin cerrar.]")
+
 def call_model(ag, view_fn, emit, stop, model, tools, think):
-    """Llama a Ollama con reintentos acotados. Devuelve (content, calls, stats) o None si hay que parar."""
+    """Llama a Ollama con reintentos DISTINTOS (otra temperatura/semilla y, si fue un fallo de parseo, una pista de dividir).
+    Devuelve (content, calls, stats); stats['parse_fail']=True si Ollama no pudo interpretar la llamada tras los reintentos; None si hay que parar."""
     last_err = None
     for attempt in range(3):
         if stop.is_set():
             return None
+        pf = bool(last_err and PARSE_FAIL.search(str(last_err)))
         try:
-            content, calls, stats = stream_ollama(view_fn(), emit, stop, model, tools, think)
+            view = view_fn()
+            if attempt and pf and view:
+                v = dict(view[-1]); v["content"] = (v.get("content") or "") + "\n\n" + SPLIT_HINT; view = view[:-1] + [v]
+            content, calls, stats = stream_ollama(view, emit, stop, model, tools, think, temp=(0.2 if not attempt else 0.55 + 0.15 * attempt), seed=(None if not attempt else 1000 + attempt))
         except Exception as e:
             last_err = e
             if stop.is_set():
                 return None
+            if PARSE_FAIL.search(str(e)):
+                ag.n_invalid += 1
             if attempt < 2:
-                emit({"type": "notice", "text": f"Ollama falló ({str(e)[:120]}); reintento {attempt + 1}/2…"}); emit({"type": "clear_text"})
-                time.sleep(3 * (attempt + 1)); continue
+                emit({"type": "notice", "text": f"Ollama falló ({str(e)[:140]}); reintento {attempt + 1}/2 con otra temperatura" + (" y pidiendo contenido más pequeño…" if PARSE_FAIL.search(str(e)) else "…")}); emit({"type": "clear_text"})
+                time.sleep(2 * (attempt + 1)); continue
+            if PARSE_FAIL.search(str(e)):
+                return "", [], {"parse_fail": True, "error": str(e)[:200]}
             raise
         if not content.strip() and not calls and not stats.get("thinking") and not stop.is_set():
             ag.strag.empty += 1
@@ -565,6 +586,12 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
         if res is None:
             emit({"type": "notice", "text": "Detenido por el usuario."}); outcome = "stopped"; break
         content, calls, stats = res
+        if stats.get("parse_fail"):
+            st["parse"] += 1; ag.log("BLOCKERS.md", f"Ollama no pudo interpretar la llamada a herramienta ({st['parse']}): {stats.get('error', '')[:100]}")
+            if st["parse"] >= 4:
+                emit({"type": "error", "text": "Ollama no pudo interpretar las llamadas a herramienta 4 veces seguidas: tarea BLOQUEADA (progreso guardado)."}); outcome = "blocked"; break
+            hidden_user(SPLIT_HINT + " Divide el trabajo en pasos pequeños.")
+            emit({"type": "notice", "text": f"El modelo escribió una llamada demasiado grande/rota ({st['parse']}/4): le pido dividirla en trozos pequeños."}); save(); continue
         if mode == "chat":
             calls = []
         elif not calls and content:
