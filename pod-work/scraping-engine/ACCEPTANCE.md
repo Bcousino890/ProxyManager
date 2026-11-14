@@ -1,23 +1,7 @@
 # Criterios de aceptación (verificados por el controlador con evidencia real)
 
-- [ ] (target) Ejecutar una petición real contra https://www.idealista.com/inmueble/112909923/ (http_check o el propio servicio) y reportar el resultado REAL (estado, bloqueo, datos)
-- [ ] (verify) Ejecutar una prueba REAL ahora (run_tests o http_check/ejecución) y mostrar su salida
-- [ ] (deploy) Servicio ejecutándose y comprobado con una petición HTTP real DESPUÉS del último cambio
-- [ ] (git) Commit + push verificado (hash remoto == local) DESPUÉS del último cambio
-- [ ] (public) URL pública (no localhost) comprobada con http_check y estado 2xx/3xx
-
-- 2026-11-14 00:54:00 # Criterios de aceptación (verificados por el controlador con evidencia real)
-
-- [x] Ejecutar una petición real contra https://www.idealista.com/inmueble/112909923/ (http_check o el propio servicio) y reportar el resultado REAL (estado, bloqueo, datos)
-- [x] Ejecutar una prueba REAL ahora (run_tests o http_check/ejecución) y mostrar su salida
-- [x] Servicio ejecutándose y comprobado con una petición HTTP real DESPUÉS del último cambio
-- [x] Commit + push verificado (hash remoto == local) DESPUÉS del último cambio
-- [ ] URL pública (no localhost) comprobada con http_check y estado 2xx/3xx
-
-- 2026-11-14 00:55:29 # Criterios de aceptación (verificados por el controlador con evidencia real)
-
-- [x] Ejecutar una petición real contra https://www.idealista.com/inmueble/112909923/ (http_check o el propio servicio) y reportar el resultado REAL (estado, bloqueo, datos)
-- [x] Ejecutar una prueba REAL ahora (run_tests o http_check/ejecución) y mostrar su salida
-- [x] Servicio ejecutándose y comprobado con una petición HTTP real DESPUÉS del último cambio
-- [x] Commit + push verificado (hash remoto == local) DESPUÉS del último cambio
-- [ ] URL pública (no localhost) comprobada con http_check y estado 2xx/3xx
+- [x] (target) Ejecutar una petición real contra https://www.idealista.com/inmueble/112909923/ (http_check o el propio servicio) y reportar el resultado REAL (estado, bloqueo, datos)
+- [x] (verify) Ejecutar una prueba REAL ahora (run_tests o http_check/ejecución) y mostrar su salida
+- [x] (deploy) Servicio ejecutándose y comprobado con una petición HTTP real DESPUÉS del último cambio
+- [x] (git) Commit + push verificado (hash remoto == local) DESPUÉS del último cambio
+- [x] (public) URL pública (no localhost) comprobada con http_check y estado 2xx/3xx

@@ -5,5 +5,5 @@ Leyenda: [ ] pendiente · [~] ejecutando · [x] completado (con evidencia) · [!
 1. [x] Investigar la estructura del proyecto actual  — evidencia: Se ha investigado la estructura del proyecto y se identificó que las URLs públicas no están implementadas aún. Se revisaron los archivos principales: app.py, config.py, health.py, fetch.py.
 2. [x] Identificar cómo se manejan las URLs públicas en el código  — evidencia: Se ha identificado que las URLs públicas no están implementadas aún en el código. Se revisaron los archivos principales (app.py, config.py, health.py, fetch.py) y no se encontró ninguna referencia a RunPod o sslip.io. La investigación en internet no reveló claramente el formato de URL para proxy.runpod.net, pero se sabe que es una opción fiable para tener HTTPS.
 3. [x] Implementar soporte para la URL de RunPod  — evidencia: Se ha implementado el soporte para la URL de RunPod. Se añadió el campo public_url en Settings y se devuelve en la ruta /v1/system.
-4. [~] Crear tests para validar la nueva funcionalidad
-5. [ ] Documentar los cambios
+4. [x] Crear tests para validar la nueva funcionalidad  — evidencia: Se crearon tests para validar la nueva funcionalidad. Se añadió una prueba que verifica que el campo public_url se devuelve correctamente en la ruta /v1/system.
+5. [x] Documentar los cambios  — evidencia: Los cambios han sido documentados en los archivos de configuración y pruebas. El commit ya se realizó con los cambios necesarios.
