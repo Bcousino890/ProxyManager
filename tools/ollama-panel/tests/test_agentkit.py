@@ -560,3 +560,11 @@ def test_user_can_stop_stuck_task_without_losing_anything(monkeypatch):
     out = srv.agent_turn(conv, lambda e: None, ev, "agent", "m")
     assert out == "stopped" and len(conv["messages"]) > before and (srv.WORKDIR / "keep_me.py").exists()
     assert srv.jload(srv.conv_path(conv["id"]), {})["run"]["status"] == "stopped"
+
+
+def test_broad_kill_commands_need_approval():
+    """Incidente real: `pkill -f "python.*server.py"` mató el panel y un servicio del usuario."""
+    for c in ['pkill -f "python.*server.py"', "killall python3", "pkill uvicorn", "fuser -k 8002/tcp", "kill -9 $(pgrep -f server)", "ps aux | awk '{print $2}' | xargs kill"]:
+        assert srv.needs_approval("bash", {"command": c}), c
+    assert not srv.needs_approval("bash", {"command": "echo hola && ls"})
+    assert "NUNCA uses pkill" in srv.system_base()
