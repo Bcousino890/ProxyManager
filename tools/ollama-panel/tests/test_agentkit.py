@@ -252,11 +252,11 @@ def test_interrupted_runs_are_marked():
 
 
 # ================================================================ REGRESIÓN: finalización prematura sin evidencia
-def fake_probe(status=200, ok=None, calls=None):
+def fake_probe(status=200, ok=None, calls=None, server="t", snippet="x", nbytes=10):
     def f(url, method="GET", timeout=15, headers=None, contains=None, max_bytes=200000):
         if calls is not None: calls.append(url)
         good = status < 400 if ok is None else ok
-        return {"url": url, "status": status, "ok": good, "seconds": 0.1, "bytes": 10, "final_url": url, "snippet": "x", "error": None, "server": "t"}
+        return {"url": url, "status": status, "ok": good, "seconds": 0.1, "bytes": nbytes, "final_url": url, "snippet": snippet, "error": None, "server": server}
     return f
 
 def prior_conv(summary="Todo listo: public_url configurada y servicio terminado."):
@@ -347,7 +347,7 @@ def test_plan_done_requires_real_evidence_by_task_type(monkeypatch):
     assert not ok and "PÚBLICA" in out                                  # una variable de configuración no es una URL pública
 
 def test_blocked_site_is_reported_not_success(monkeypatch):
-    monkeypatch.setattr(kit, "http_probe", fake_probe(403))
+    monkeypatch.setattr(kit, "http_probe", fake_probe(403, server="DataDome", snippet="Please enable JS"))
     ag, _ = mk_agent(); ok, out = ag.exec("http_check", {"url": "https://www.idealista.com/x"})
     assert not ok and "bloqueo" in out.lower() and "403" in out
     ag2, _ = mk_agent(); ag2.add_requirements("Prueba esta URL https://www.idealista.com/x"); assert ag2.unmet()
@@ -430,3 +430,133 @@ def test_user_can_steer_the_agent_while_it_runs(monkeypatch):
     assert any("usa httpx en vez de requests" in v for v in seen[:1])                 # el modelo lo ve en la primera llamada
     assert any(m["role"] == "tool" and "paso2_tras_consejo" in m["content"] for m in conv["messages"])   # y siguió trabajando tras el 2º comentario
     assert sum(1 for e in ev if e["type"] == "user" and e.get("steer")) == 2 and not q
+
+
+# ================================================================ REGRESIÓN: bucle infinito de validación / criterios obsoletos
+from collections import Counter
+PAD = " Contexto del proyecto: panel de frontend y backend con servicios locales. " * 5      # >300 caracteres => el controlador crea la memoria de la tarea (BLOCKERS.md, ACCEPTANCE.md)
+
+def reqs_conv(reqs, text):
+    c = prior_conv(); c["messages"][0]["content"] = "Construye la app completa del panel." + PAD; c["run"]["reqs"] = reqs; return last_user(c, text)
+
+def pub_req(): return {"kind": "public", "key": "url", "text": "URL pública (no localhost) comprobada con http_check y estado 2xx/3xx", "since": 0, "status": "active", "epoch": 0}
+
+def test_REGRESSION_public_url_requirement_changed_to_local_ssh(monkeypatch):
+    """Escenario del usuario: la tarea exigía URL pública; no está disponible; el usuario cambia a acceso local por SSH."""
+    monkeypatch.setattr(kit, "http_probe", fake_probe(200))
+    conv = reqs_conv([pub_req()], "La URL pública no está disponible. Cambio el requisito: acceso local mediante SSH, ya no hace falta la URL pública. Sigue con el frontend y el backend." + PAD)
+    SCRIPT[:] = [call("plan", action="set", tasks=["Crear el frontend", "Crear el backend", "Arrancar el servicio local"]),
+                 call("write_file", path="front_t/index.html", content="<h1>hola</h1>"), call("write_file", path="back_t/app.py", content="print('api')"),
+                 call("proc_start", name="svcssh", command="sleep 60"), call("http_check", url="http://127.0.0.1:8000/health"),
+                 call("plan", action="update", index=1, status="done", evidence="write_file front_t/index.html creado correctamente"),
+                 call("plan", action="update", index=2, status="done", evidence="write_file back_t/app.py creado correctamente"),
+                 call("plan", action="update", index=3, status="done", evidence="proc_start svcssh y http_check local devolvió HTTP 200"),
+                 {"content": "Frontend y backend listos. Accesible por SSH en http://127.0.0.1:8000/health (HTTP 200)."}]
+    out, conv, ev = run_turn(conv); kit.proc_stop("svcssh")
+    stat = {r["kind"]: kit.rstat(r) for r in conv["run"]["reqs"]}
+    assert stat["public"] == "retired" and stat.get("local") == "done", stat          # la pública se retiró y el acceso local se cumplió
+    assert out == "done", out
+    allhidden = " ".join(m["content"] for m in conv["messages"] if m.get("hidden")).lower()
+    assert "url pública" not in allhidden and "pública" not in allhidden               # ningún aviso vuelve a pedir la URL pública
+    assert not any("pública" in (e.get("text") or "") for e in ev if e["type"] in ("notice", "blocker", "verified") and "retirad" not in e.get("text", ""))
+    assert any("Criterio retirado por tu cambio" in e.get("text", "") for e in ev)      # y se avisó del cambio de criterio
+    assert "Criterios retirados" in conv["messages"][-1]["content"]
+
+def test_REGRESSION_http_403_datadome_is_blocked_not_success(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe(403, server="DataDome", snippet="Please enable JS and disable any ad blocker", nbytes=773))
+    conv = reqs_conv([], "Prueba esta URL https://www.idealista.com/inmueble/1/ y extrae los datos." + PAD)
+    SCRIPT[:] = [call("plan", action="set", tasks=["Intentar la extracción real de Idealista", "Documentar el resultado"]), call("http_check", url="https://www.idealista.com/inmueble/1/"),
+                 call("plan", action="update", index=1, status="blocked", evidence="HTTP 403 DataDome en http_check"),
+                 call("plan", action="update", index=2, status="blocked", evidence="sin datos que documentar: bloqueado por DataDome"),
+                 {"content": "Idealista bloquea la petición con DataDome (HTTP 403); no se obtuvieron datos."}]
+    out, conv, ev = run_turn(conv)
+    assert out == "incomplete"                                                           # BLOQUEADO, no «extracción exitosa»
+    tgt = [r for r in conv["run"]["reqs"] if r["kind"] == "target"][0]
+    assert kit.rstat(tgt) == "blocked" and "antibot" in tgt["reason"]
+    final = conv["messages"][-1]["content"]
+    assert "Extracción ejecutada: SÍ" in final and "Datos útiles obtenidos: NO" in final and "DataDome" in final and "BLOQUEADOS" in final
+    assert "Servicio operativo (2xx/3xx): NO" in final and "Despliegue público verificado: NO" in final
+    assert sum(1 for e in ev if e["type"] == "blocker") == 1                              # aviso único
+    assert sum(1 for m in conv["messages"] if m.get("hidden") and "NO puedes cerrar" in m["content"]) == 0
+    pdir = Path(conv["run"]["project"]); assert (pdir / "BLOCKERS.md").read_text().count("criterio BLOQUEADO") == 1
+
+def test_http_404_never_counts_as_available(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe(404))
+    ag, _ = mk_agent(); ag.add_requirements("Pruébalo y despliégalo en el servicio")
+    ok, out = ag.exec("http_check", {"url": "http://127.0.0.1:9100/health", "expect_status": 200})
+    assert not ok and "404" in out and "NO cuenta" in out
+    assert not ag.exec("http_check", {"url": "http://127.0.0.1:9100/"})[0]
+    kinds = {r["kind"] for r, _ in ag.unmet()}; assert {"verify", "deploy"} <= kinds             # un 404 no satisface prueba ni despliegue
+    lv = ag.service_levels(); assert lv["accesible"] and not lv["operativo"]                  # accesible ≠ operativo
+    monkeypatch.setattr(kit, "http_probe", fake_probe(200)); assert ag.exec("http_check", {"url": "http://127.0.0.1:9100/health", "expect_status": 200})[0]
+    assert not ag.exec("http_check", {"url": "http://127.0.0.1:9100/x", "expect_status": 204})[0]   # 200 != 204
+
+def test_five_service_levels_are_distinct(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe(200, nbytes=900))
+    ag, _ = mk_agent(); ag.add_requirements("Prueba https://www.ejemplo-sitio.es/p/1 y extrae")
+    assert ag.service_levels()["extraccion"] == "NO" and ag.service_levels()["datos"] == "NO" and not ag.service_levels()["publico"]
+    ag.exec("http_check", {"url": "https://www.ejemplo-sitio.es/p/1"})
+    lv = ag.service_levels(); assert lv["extraccion"].startswith("SÍ") and lv["datos"].startswith("SÍ") and lv["publico"] and not lv["accesible"]
+
+def test_identical_warnings_are_not_repeated_across_resumes(monkeypatch):
+    """El bucle de las 100+ repeticiones: el mismo aviso, turno tras turno. Ahora hay deduplicación y límite persistentes."""
+    monkeypatch.setattr(kit, "http_probe", fake_probe(200))
+    claim = "Todo listo. La URL pública funciona: https://abc-8000.proxy.runpod.net y está desplegado."
+    conv = reqs_conv([], "Despliega el servicio con una URL pública HTTPS y pruébalo." + PAD)
+    msgs_hidden = []
+    for i in range(4):                                                                  # 1 turno + 3 reanudaciones
+        SCRIPT[:] = [{"content": claim}] * 14
+        if i: conv["messages"].append({"role": "user", "hidden": True, "content": "REANUDA la tarea"})
+        out, conv, ev = run_turn(conv, resume=bool(i))
+        assert out == "incomplete"
+    hidden = [m["content"] for m in conv["messages"] if m.get("hidden") and "NO puedes cerrar" in m["content"]]
+    assert len(hidden) <= 4, len(hidden)                                                # antes: 12 por turno, sin fin entre turnos
+    assert Counter(hidden).most_common(1)[0][1] <= 2                                    # ningún texto idéntico más de 2 veces
+    ctrl = [m["content"] for m in conv["messages"] if m.get("hidden") and m["role"] == "user" and not m["content"].startswith("REANUDA")]
+    assert Counter(ctrl).most_common(1)[0][1] <= 2 
+    crit = [c for c in ctrl if c.startswith("CRITERIOS DE ACEPTACIÓN")]; assert len(crit) == len(set(crit))        # el resumen de criterios solo se reenvía si CAMBIÓ
+    bl = (Path(conv["run"]["project"]) / "BLOCKERS.md").read_text()
+    assert bl.count("criterio BLOQUEADO (public)") == 1 and bl.count("criterio BLOQUEADO (deploy)") <= 1   # cada bloqueo se registra UNA vez
+    assert sum(1 for e in ev if e["type"] == "blocker") == 0                            # en las reanudaciones ya no se vuelve a avisar
+
+def test_old_criteria_do_not_block_new_task_and_keep_old_on_continue(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe(200))
+    git_req = {"kind": "git", "key": "push", "text": "Commit + push verificado", "since": 0, "status": "active", "epoch": 0}
+    ag, _ = mk_agent(prior_conv()); ag.reqs = [dict(git_req)]; ag.on_user_message("pruébalo")
+    assert kit.rstat(ag.reqs[0]) == "retired" and {r["kind"] for r, _ in ag.unmet()} == {"verify"}      # el criterio antiguo ya no bloquea
+    ag2, _ = mk_agent(prior_conv()); ag2.reqs = [dict(git_req)]; ag2.on_user_message("continúa y pruébalo")
+    assert kit.rstat(ag2.reqs[0]) == "active"                                                          # «continúa» conserva lo anterior
+
+def test_explicit_criteria_update_replace_retire_reactivate(monkeypatch):
+    conv = prior_conv(); conv["run"]["reqs"] = [pub_req(), {"kind": "git", "key": "push", "text": "Commit + push verificado", "since": 0, "status": "active", "epoch": 0}]
+    srv.jsave(srv.conv_path(conv["id"]), conv)
+    r = srv.criteria_op(conv["id"], "retire", 1); assert r["ok"] and r["criteria"][1]["status"] == "retired"
+    r = srv.criteria_op(conv["id"], "reactivate", 1); assert r["criteria"][1]["status"] == "active"
+    r = srv.criteria_op(conv["id"], "add", None, "ya no es obligatoria la URL pública; acceso local por SSH"); assert r["ok"]
+    st = {c["kind"]: c["status"] for c in srv.criteria_view(conv["id"])}; assert st["public"] == "retired" and st["local"] == "active"
+    r = srv.criteria_op(conv["id"], "replace", 1, "pruébalo"); assert any(c["kind"] == "verify" and c["status"] == "active" for c in r["criteria"]) and r["criteria"][1]["status"] == "retired"
+    r = srv.criteria_op(conv["id"], "clear"); assert all(c["status"] in ("retired", "done") for c in r["criteria"])        # liberar: nada bloquea y nada se borra
+    assert len(srv.criteria_view(conv["id"])) >= 4
+    assert not srv.criteria_op("aaaaaaaaaaaa", "clear")["ok"]
+
+def test_extract_changes_natural_language():
+    c = kit.extract_changes("La URL pública no es obligatoria en esta fase, acceso local mediante SSH")
+    assert "public" in c["drop"] and c["add_local"]
+    assert "public" in kit.extract_changes("ya no hace falta la URL pública")["drop"]
+    assert "verify" in kit.extract_changes("ignora el requisito de pruebas")["drop"] and "git" in kit.extract_changes("olvida el criterio de github")["drop"]
+    assert not kit.extract_changes("Despliega el servicio con URL pública HTTPS")["drop"]           # pedir URL pública NO la retira
+    assert kit.extract_changes("continúa con lo de antes")["keep_old"]
+
+def test_user_can_stop_stuck_task_without_losing_anything(monkeypatch):
+    """Cancelar una tarea atascada conserva conversación, código y progreso."""
+    ev = threading.Event(); conv = reqs_conv([], "Haz algo largo." + PAD); before = len(conv["messages"])
+    SCRIPT[:] = [call("write_file", path="keep_me.py", content="x=1")] + [call("bash", command=f"echo v{i}") for i in range(30)]
+    n = {"i": 0}; real = srv.call_model
+    def wrapped(*a, **k):
+        n["i"] += 1
+        if n["i"] == 4: ev.set()
+        return real(*a, **k)
+    monkeypatch.setattr(srv, "call_model", wrapped)
+    out = srv.agent_turn(conv, lambda e: None, ev, "agent", "m")
+    assert out == "stopped" and len(conv["messages"]) > before and (srv.WORKDIR / "keep_me.py").exists()
+    assert srv.jload(srv.conv_path(conv["id"]), {})["run"]["status"] == "stopped"

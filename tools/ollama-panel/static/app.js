@@ -318,3 +318,15 @@ $('#depSummary').onclick = () => { $('#depList').hidden = !$('#depList').hidden;
 $('#depList').hidden = true;
 $('#depSave').onclick = async () => { const r = await api('/deploy/config', {pod_id: $('#depPod').value, app_port: $('#depPort').value}); toast(r.ok ? 'Guardado' : r.msg); depCheck(false); };
 depCheck(false);
+
+// ---------- criterios de aceptación (actualizar / retirar / reactivar)
+async function loadCriteria() {
+  if (!S.id) return; const r = await api('/criteria?id=' + S.id), L = {active: 'ACTIVO', done: 'CUMPLIDO', blocked: 'BLOQUEADO', retired: 'RETIRADO'};
+  $('#abCrit').innerHTML = (r.criteria || []).map(c => `<li class="cr-${c.status}"><b>[${L[c.status]}]</b> ${esc(c.text)}${c.reason ? ` <span class="muted">— ${esc(c.reason)}</span>` : ''} ` +
+    (c.status === 'retired' ? `<button class="link" data-a="reactivate" data-i="${c.index}">↺ reactivar</button>` : c.status !== 'done' ? `<button class="link" data-a="retire" data-i="${c.index}">✕ retirar</button>` : '') + '</li>').join('') || '<li class="muted">Sin criterios.</li>';
+}
+$('#abCrit').onclick = async e => { const b = e.target.closest('button[data-a]'); if (!b) return; const r = await api('/criteria', {id: S.id, action: b.dataset.a, index: +b.dataset.i}); toast(r.msg || ''); loadCriteria(); };
+$('#abClear').onclick = async () => { if (!confirm('¿Retirar todos los criterios activos/bloqueados? No se borra nada y se pueden reactivar.')) return; const r = await api('/criteria', {id: S.id, action: 'clear'}); toast(r.msg || ''); loadCriteria(); };
+$('#abAddCrit').onclick = async () => { const t = prompt('Escribe el cambio de criterio en lenguaje natural (p. ej. «la URL pública ya no es obligatoria, acceso local por SSH»):'); if (!t) return; const r = await api('/criteria', {id: S.id, action: 'add', text: t}); toast(r.msg || ''); loadCriteria(); };
+$('#abStop').onclick = async () => { await api('/stop', {id: S.id}); toast('■ Tarea detenida: se conserva todo (chats, código y progreso)'); };
+const _abHead = $('#abHead').onclick; $('#abHead').onclick = e => { _abHead(e); if (!$('#abBody').hidden) loadCriteria(); };

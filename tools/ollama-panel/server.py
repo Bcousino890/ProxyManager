@@ -547,6 +547,10 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
         emit({"type": "notice", "text": f"Memoria de la tarea guardada en {ag.project} (TASK/PLAN/PROGRESS/DECISIONS/TEST_RESULTS/BLOCKERS); pasa a la carpeta del proyecto cuando el agente llame a project_init."})
     st = {"wrote": False, "ran": False, "nv": False, "ne": False, "nf": 0, "refused": False, "intent": 0, "pend": 0, "parse": 0, "gate": 0, "gate_total": 0}
     user_msgs = [(m.get("display") or m["content"]) for m in msgs if m["role"] == "user" and not m.get("hidden") and not m.get("shell")]
+    def hidden_once(text):
+        """Aviso interno SIN repeticiones: si el mismo texto ya se envió hace poco, no se vuelve a enviar."""
+        if any(m.get("hidden") and m["role"] == "user" and m["content"] == text for m in msgs[(conv.get("ctx") or {}).get("upto", 0):]): return False   # ya está en lo que ve el modelo
+        msgs.append({"role": "user", "hidden": True, "content": text}); return True
     if mode == "agent" and user_msgs:
         if resume:
             if not ag.reqs:
@@ -554,12 +558,15 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
                 for r in ag.reqs: r["since"] = 0
         else:
             ag.on_user_message(user_msgs[-1])
+        for n_ in ag.change_notes: emit({"type": "notice", "text": "✎ " + n_})
         ag.settle(); un = ag.unmet()
-        if ag.reqs:
-            msgs.append({"role": "user", "hidden": True, "content": "CRITERIOS DE ACEPTACIÓN detectados en lo que pide el usuario (el sistema los verifica con evidencia REAL; cerrar sin cumplirlos será rechazado):\n" +
-                         "\n".join(f"- [{'PENDIENTE' if any(r is x for x, _ in un) else 'CUMPLIDO'}] {r['text']}" for r in ag.reqs if not r.get("done") or resume) +
-                         "\nCrea ahora un plan (plan action=set) que los cubra y EJECÚTALO con herramientas. No repitas resúmenes anteriores: actúa sobre la última petición del usuario. Para probar una URL usa http_check; para desplegar usa proc_start + http_check; para publicar en GitHub usa git_commit + git_push."})
-            ag.write_acceptance()
+        active = [r for r in ag.reqs if kit.rstat(r) == "active"]; blocked = [r for r in ag.reqs if kit.rstat(r) == "blocked"]
+        if active or blocked:
+            hidden_once("CRITERIOS DE ACEPTACIÓN ACTIVOS de la tarea actual (el sistema los verifica con evidencia REAL; los retirados o ya cumplidos NO cuentan):\n" +
+                        "\n".join(f"- [PENDIENTE] {r['text']}" for r in active) +
+                        ("".join(f"\n- [BLOQUEADO — ya avisado, no insistas, pasa a otras tareas] {r['text'][:90]}: {r.get('reason', '')[:100]}" for r in blocked)) +
+                        "\nCrea ahora un plan (plan action=set) que cubra lo pendiente y EJECÚTALO con herramientas. No repitas resúmenes anteriores: actúa sobre la última petición del usuario. Para probar una URL usa http_check; para desplegar usa proc_start + http_check; para publicar en GitHub usa git_commit + git_push.")
+        ag.write_acceptance()
     max_steps = RESEARCH_STEPS if mode == "research" else MAX_STEPS
     outcome = "incomplete"
     def save(status="running"):
@@ -575,7 +582,8 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
             msgs.append({"role": "user", "content": "[COMENTARIO DEL USUARIO MIENTRAS TRABAJAS — tenlo en cuenta desde ya; ajusta el plan si hace falta y sigue con herramientas]\n" + t, "display": t, "steer": True})
             emit({"type": "user", "text": t, "steer": True})
             if mode == "agent":
-                ag.on_user_message(t)
+                ag.on_user_message(t, steer=True)
+                for n_ in ag.change_notes: emit({"type": "notice", "text": "✎ " + n_})
             ag.strag.strikes = 0; st["gate"] = 0; st["pend"] = 0; n += 1
         if n: save()
         return n
@@ -625,8 +633,17 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
         if mode == "agent" and not calls and content.strip() and not LOOKS_LIKE_CALL.search(content):
             prev_final = next((m.get("content") for m in reversed(msgs) if m["role"] == "assistant" and not m.get("tool_calls") and not m.get("hidden") and m.get("content")), None)
             probs = ag.completion_problems(content, prev_final)
+        gate_ok = False
+        if probs:
+            gkey = f"{ag.last_mut}:" + kit.hashlib.md5("|".join(sorted(probs)).encode()).hexdigest()[:10]
+            seen_n = ag.sig_counts.get(gkey, 0)       # persistente entre turnos/reanudaciones: el mismo aviso nunca se repite más de 2 veces
+            if seen_n < 2 and st["gate_total"] < 6:
+                ag.sig_counts[gkey] = seen_n + 1; gate_ok = True
+            else:
+                for r_, _ in ag.unmet(): ag.block(r_, "sin evidencia tras 2 avisos")
+                st["gate_blocked"] = True; st["claims"] = [p for p in probs if not p.startswith("Requisito")]
         if mode != "chat" and not calls and content:
-            if probs and st["gate"] < 4 and st["gate_total"] < 12:
+            if probs and gate_ok:
                 st["gate"] += 1; st["gate_total"] += 1
                 nudge = ("NO puedes cerrar la tarea todavía. Faltan pruebas reales de lo que afirmas o de lo que se pidió:\n- " + "\n- ".join(probs[:6]) +
                          "\nEjecuta AHORA las herramientas necesarias (http_check, run_tests, proc_start, git_push…) y reporta el resultado REAL, aunque sea un fallo o un bloqueo (403/captcha/DataDome). "
@@ -709,6 +726,11 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
             r = ag.strag.record(name, args, ok, out, blocked=blocked)
             if r: reasons.append(r)
             ag.push_status()
+        if mode == "agent":
+            ag.unmet()
+            if ag.new_blocks:
+                hidden_once("CRITERIO(S) BLOQUEADO(S), avisado UNA sola vez (queda en BLOCKERS.md): " + "; ".join(ag.new_blocks) + ". No insistas ni intentes evadir la protección. Continúa con las demás tareas pendientes independientes (frontend, backend, pruebas…) y al terminar cierra con un único informe de bloqueos.")
+                ag.new_blocks.clear(); st["pend"] = 0
         if reasons:
             s = ag.strag.strikes
             ag.log("BLOCKERS.md", f"estancamiento ({s}): {reasons[0]}")
@@ -725,16 +747,23 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
     if mode == "agent" and (ag.reqs or ag.ledger) and outcome in ("done", "incomplete", "budget", "blocked", "stopped"):
         try:
             report = ag.verified_report()
-            if outcome == "done" and (ag.unmet() or st["gate"] >= 4):
+            has_blocked = any(kit.rstat(r_) == "blocked" for r_ in ag.reqs)
+            if outcome == "done" and (ag.unmet() or has_blocked or st.get("gate_blocked")):
                 outcome = "incomplete"
-            if outcome == "incomplete" and ag.unmet():
-                report += "\n- Resultado: **INCOMPLETO** — la tarea NO se da por terminada; pulsa Reanudar para continuar con lo pendiente."
-            last = msgs[-1] if msgs else None
-            if last and last["role"] == "assistant" and not last.get("tool_calls"):
-                last["content"] = (last.get("content") or "") + "\n\n---\n" + report
+            if st.get("claims"): report += "\n- ⚠ Afirmaciones de la respuesta SIN evidencia (ignóralas): " + "; ".join(p[:110] for p in st["claims"][:3])
+            if outcome == "incomplete":
+                report += ("\n- Resultado: **INCOMPLETO** — los trabajos posibles están terminados; quedan criterios BLOQUEADOS (informe único arriba)." if has_blocked and not ag.unmet()
+                           else "\n- Resultado: **INCOMPLETO** — la tarea NO se da por terminada; pulsa Reanudar para continuar con lo pendiente.")
+            prev_rep = next(((m.get("content") or "").split("\n\n---\n")[-1] for m in reversed(msgs) if m["role"] == "assistant" and "Estado verificado por el controlador" in (m.get("content") or "")), None)
+            if prev_rep == report:
+                emit({"type": "notice", "text": "Sin cambios desde el último informe verificado (no se repite)."})
             else:
-                msgs.append({"role": "assistant", "content": report, "verified": True})
-            emit({"type": "verified", "text": report})
+                last = msgs[-1] if msgs else None
+                if last and last["role"] == "assistant" and not last.get("tool_calls"):
+                    last["content"] = (last.get("content") or "") + "\n\n---\n" + report
+                else:
+                    msgs.append({"role": "assistant", "content": report, "verified": True})
+                emit({"type": "verified", "text": report})
         except Exception as e:
             emit({"type": "notice", "text": f"No pude generar el informe verificado: {e}"})
     ag.push_status(); save(outcome)
@@ -928,6 +957,32 @@ def deploy_check(full=False):
     ok_all = all(i["ok"] for i in items if i["id"] not in ("persist", "branch", "public", "port", "pod_id", "on_branch"))
     return {"items": items, "ready": ok_all, "public_url": url, "pod_id": pid, "app_port": port, "branch": BRANCH}
 
+
+def criteria_view(cid):
+    ag = RUNS_AGENT.get(cid); run = RUNS.get(cid)
+    if ag and run and run.status == "running": reqs = ag.reqs
+    else: reqs = ((jload(conv_path(cid), {}) or {}).get("run") or {}).get("reqs", [])
+    return [{"index": i, "kind": r["kind"], "status": kit.rstat(r), "text": r["text"], "reason": r.get("reason", "")} for i, r in enumerate(reqs)]
+
+def criteria_op(cid, action, idx=None, text=None):
+    """Actualizar / sustituir / retirar / reactivar criterios de aceptación (también con la tarea en curso). No borra nada: retirar es reversible."""
+    conv = jload(conv_path(cid), None)
+    if not conv: return {"ok": False, "msg": "conversación inexistente"}
+    run = RUNS.get(cid); live = RUNS_AGENT.get(cid) if (run and run.status == "running") else None
+    ag = live or kit.Agent(conv, lambda e: None, threading.Event(), legacy_exec)
+    msg = ""
+    if action == "retire": ok = ag.retire(int(idx), "retirado por el usuario"); msg = "criterio retirado" if ok else "índice inválido"
+    elif action == "reactivate": ok = ag.reactivate(int(idx)); msg = "criterio reactivado" if ok else "índice inválido"
+    elif action == "clear": n = ag.clear_blocking(); ok = True; msg = f"{n} criterios retirados: ya no bloquean (reactivables)"
+    elif action in ("add", "replace"):
+        if not (text or "").strip(): return {"ok": False, "msg": "texto vacío"}
+        if action == "replace" and idx is not None: ag.retire(int(idx), "sustituido por el usuario")
+        new = ag.on_user_message(text, steer=True); ok = True; msg = f"{len(new)} criterio(s) nuevo(s)" + ("; " + "; ".join(ag.change_notes) if ag.change_notes else "")
+    else: return {"ok": False, "msg": "acción desconocida"}
+    if not live:
+        conv["run"] = {**(conv.get("run") or {}), "reqs": ag.reqs}; jsave(conv_path(cid), conv)
+    return {"ok": ok, "msg": msg, "criteria": criteria_view(cid)}
+
 # ---------------------------------------------------------------- HTTP
 class H(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -962,6 +1017,9 @@ class H(BaseHTTPRequestHandler):
                 r = RUNS.get(m.group(1))
                 if not r: return self._json({"status": "none"})
                 return self.stream_run(r, int(parse_qs(urlparse(self.path).query).get("from", ["0"])[0]))
+            if path == "/api/criteria":
+                from urllib.parse import parse_qs
+                return self._json({"criteria": criteria_view(parse_qs(urlparse(self.path).query).get("id", [""])[0])})
             if path == "/api/git/verify":
                 return self._json(git_verify())
             if path == "/api/deploy/check":
@@ -1027,6 +1085,8 @@ class H(BaseHTTPRequestHandler):
                 ev = STOPS.get(b.get("id"))
                 if ev: ev.set()
                 return self._json({"ok": True})
+            if path == "/api/criteria":
+                return self._json(criteria_op(b.get("id", ""), b.get("action", ""), b.get("index"), b.get("text")))
             if path == "/api/steer":
                 r = RUNS.get(b.get("id")); t = (b.get("message") or "").strip()
                 if not t: return self._json({"ok": False, "msg": "mensaje vacío"}, 400)
@@ -1104,8 +1164,9 @@ class H(BaseHTTPRequestHandler):
 apply_config()
 
 if __name__ == "__main__":
-    mark_interrupted(); install_hooks()
-    ensure_branch()
+    if not os.environ.get("PANEL_TEST"):     # la instancia de prueba del despliegue NO debe tocar el repositorio (cambiaba de rama y reescribía el código)
+        mark_interrupted(); install_hooks()
+        ensure_branch()
     host, port = os.environ.get("PANEL_HOST", "127.0.0.1"), int(os.environ.get("PANEL_PORT", "8787"))
     print(f"Panel del Pod en http://{host}:{port}  ·  modelo {MODEL}  ·  workdir {WORKDIR}  ·  rama {BRANCH}")
     ThreadingHTTPServer((host, port), H).serve_forever()

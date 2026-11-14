@@ -299,7 +299,7 @@ SCHEMAS = [
     _t("memory_update", "Actualiza un archivo de memoria del proyecto (sobrevive a la compactación del contexto). Registra decisiones en DECISIONES.md, bloqueos en BLOCKERS.md, etc.",
        {"file": S("TASK.md|PLAN.md|PROGRESS.md|DECISIONS.md|TEST_RESULTS.md|BLOCKERS.md"), "content": S("Texto"), "mode": S("append (por defecto) | replace")}, ["file", "content"]),
     _t("http_check", "Hace una petición HTTP REAL desde el pod y devuelve estado, tiempo y un fragmento de la respuesta. Es la ÚNICA forma válida de demostrar que una URL/servicio funciona (localhost o pública). Un 403/captcha (p. ej. DataDome) se informa tal cual.",
-       {"url": S("URL completa"), "method": S("GET (por defecto) o HEAD/POST"), "contains": S("Texto que debe aparecer en la respuesta (opcional)"), "timeout": I("Segundos (por defecto 15)")}, ["url"]),
+       {"url": S("URL completa"), "method": S("GET (por defecto) o HEAD/POST"), "contains": S("Texto que debe aparecer en la respuesta (opcional)"), "expect_status": I("Estado HTTP exacto esperado (p. ej. 200). Un 404 NUNCA cuenta como disponible"), "timeout": I("Segundos (por defecto 15)")}, ["url"]),
     _t("notify", "Envía un aviso al usuario (notificación del navegador). Úsala cuando el usuario lo pida y al terminar una tarea larga.",
        {"title": S("Título"), "message": S("Mensaje")}, ["message"]),
 ]
@@ -315,7 +315,7 @@ IGNORE_TARGET = re.compile(r"(^|\.)(github\.com|githubusercontent\.com|pypi\.org
 HTTP_CLIENT = re.compile(r"\b(curl|wget|httpx|requests\.(get|post|request)|urllib|aiohttp|http\.client|playwright|fetch\(|http_check)\b")
 SITE_HOSTS = {"idealista": "idealista.com", "fotocasa": "fotocasa.es", "habitaclia": "habitaclia.com", "amazon": "amazon.", "zalando": "zalando.", "crawio": "crawio.com"}
 VERIFY_RX = re.compile(r"\b(pru[eé]ba(lo|la|s)?|probar|pru[eé]balo|comprueba|comprobar|verifica|verificar|testea|test|run it|try it|check)\b", re.I)
-DEPLOY_RX = re.compile(r"\b(publica(r)?|despliega(r)?|desplegad[oa]|deploy|poner? en (producci[oó]n|marcha)|pon(lo|la)? en (l[ií]nea|marcha)|lev[aá]nta(lo|la)|arranca(lo|la)?)\b", re.I)
+DEPLOY_RX = re.compile(r"\b(publica(r)?|publ[ií]ca(lo|la|los|las)|despliega(r)?|despli[eé]ga\w*|despleg\w+|deploy|poner? en (producci[oó]n|marcha)|pon(lo|la)? en (l[ií]nea|marcha)|lev[aá]nta(lo|la)|arranca(lo|la)?)\b", re.I)
 PUBLIC_RX = re.compile(r"(url|enlace|link|direcci[oó]n)\s+(p[uú]blic[ao]|https(?!:)|accesible)|p[uú]blic[ao]\s+(url|https(?!:))|https(?!:)\s+accesible|accesible\s+desde\s+internet", re.I)
 GIT_RX = re.compile(r"\b(github|git\b|commit|push|rama|branch|main)\b", re.I)
 SCRAPE_RX = re.compile(r"\b(scrap\w*|extra[ec]\w*|crawl\w*|prueba\w*|probar|ejecuta\w*|run|test\w*|comprueba\w*|verifica\w*|descarga\w*|obt[eé]n\w*)\b", re.I)
@@ -325,6 +325,8 @@ def url_host(u):
     except Exception: return ""
 
 def is_local(host): return bool(LOCAL_HOST.match(host or ""))
+
+LOCAL_REQ_TEXT = "Servicio accesible localmente (localhost / túnel SSH): http_check 2xx/3xx a un puerto local DESPUÉS del último cambio"
 
 def extract_requirements(text):
     """Criterios de aceptación verificables que se deducen de lo que pide el usuario (sin usar el modelo)."""
@@ -351,6 +353,29 @@ def extract_requirements(text):
             add("git", "push", "Commit + push verificado (hash remoto == local) DESPUÉS del último cambio")
     if PUBLIC_RX.search(t): add("public", "url", "URL pública (no localhost) comprobada con http_check y estado 2xx/3xx")
     return reqs
+
+
+NO_PUBLIC_RX = re.compile(r"(no (es|sea|hace falta|necesito|necesitamos|quiero|exijas|es necesari\w+|es obligatori\w+).{0,40}p[uú]blic\w*|ya no (es|hace falta|necesit\w+|exij\w+).{0,40}p[uú]blic\w*|p[uú]blic\w*.{0,40}(no es|ya no|innecesari\w+|opcional|no (hace falta|importa|es obligatori\w+|est[aá] disponible))|(sin|olvida|ignora|quita|elimina|descarta)\s+(el\s+|la\s+)?(requisito\s+|criterio\s+)?(de\s+)?(la\s+)?(url\s+)?p[uú]blic\w*)", re.I)
+LOCAL_ACCESS_RX = re.compile(r"(acceso\s+local|mediante\s+ssh|por\s+ssh|v[ií]a\s+ssh|t[uú]nel\s+ssh|solo\s+local|s[oó]lo\s+local|127\.0\.0\.1|localhost)", re.I)
+CHANGE_CTX_RX = re.compile(r"(cambi\w+.{0,30}(requisito|criterio)|ahora\b|en (lugar|vez) de|ya (puedo|puede|puedes) acceder|ya no)", re.I)
+DROP_WORDS = {"verify": r"pruebas?|tests?", "git": r"git|github|push|commit", "deploy": r"despliegue|deploy|servicio", "target": r"idealista|datadome|url objetivo|scraping", "public": r"p[uú]blic\w*"}
+KEEP_OLD_RX = re.compile(r"\b(contin[uú]a|reanuda|sigue|adem[aá]s|tambi[eé]n|mant[eé]n|sin perder)\b", re.I)
+
+def extract_changes(text):
+    """Cambios EXPLÍCITOS de criterios en lo que escribe el usuario: qué tipos retirar y si pasa a acceso local."""
+    t = text or ""; drop = set(); add_local = False
+    if NO_PUBLIC_RX.search(t) or (LOCAL_ACCESS_RX.search(t) and CHANGE_CTX_RX.search(t) and re.search(r"p[uú]blic|ssh|local", t, re.I)):
+        drop |= {"public"}
+        if LOCAL_ACCESS_RX.search(t): add_local = True
+    for kind, words in DROP_WORDS.items():
+        if kind != "public" and re.search(r"(ignora|olvida|quita|elimina|descarta|ya no (hace falta|es necesari\w+|necesito))\W+(\w+\W+){0,4}?(requisito|criterio)?\W*(de |del |la |el |las |los )?(" + words + ")", t, re.I): drop.add(kind)
+    return {"drop": drop, "add_local": add_local, "keep_old": bool(KEEP_OLD_RX.search(t))}
+
+ANTIBOT_RX = re.compile(r"datadome|captcha|enable js|cloudflare|akamai|incapsula|perimeterx|access denied|are you a human|blocked", re.I)
+def is_antibot(status, server="", snippet=""):
+    return status in (401, 403, 429, 503) and bool(ANTIBOT_RX.search(f"{server} {snippet}"))
+
+def rstat(r): return "done" if r.get("done") else r.get("status", "active")
 
 CLAIM_URL = re.compile(r"(funciona\w*|responde\w*|accesible\w*|disponible\w*|operativ\w*|en l[ií]nea|live|working|up\b|activ[oa]|probad\w*|200)", re.I)
 CLAIM_DEPLOY = re.compile(r"(desplegad[oa]s?|deployed|en producci[oó]n|servicio (activo|corriendo|en marcha)|servidor (activo|corriendo|en marcha)|running|publicad[oa] en (producci[oó]n|la url))", re.I)
@@ -442,6 +467,7 @@ class Agent:
         self.final_notified = False; self.tps = []; self.ctx_tokens = 0; self.nudges = 0
         self.ledger = list(r.get("ledger", [])); self.seq = max([e["seq"] for e in self.ledger] + [0]); self.reqs = list(r.get("reqs", []))
         self.last_mut = r.get("last_mut", 0); self.need_plan = False; self.plan_set_turn = False; self._http = None
+        self.epoch = r.get("epoch", 0); self.sig_counts = dict(r.get("sig_counts", {})); self.change_notes = []; self.new_blocks = []
 
     # ---- estado / tiempo
     def elapsed(self): return time.time() - self.start
@@ -462,12 +488,12 @@ class Agent:
                 "calls": self.n_calls, "valid": self.n_valid, "invalid": self.n_invalid, "errors": self.n_err, "files": sorted(self.files)[-12:], "n_files": len(self.files),
                 "last_test": self.last_test, "last_tool": self.last_tool, "ctx": self.ctx_tokens, "compactions": self.n_compact, "tps": round(sum(self.tps[-5:]) / len(self.tps[-5:]), 1) if self.tps else None,
                 "strikes": self.strag.strikes, "project": str(self.project) if self.project else None,
-                "unmet": [r["text"] for r, _ in self.unmet()][:6], "reqs": len(self.reqs)}
+                "unmet": [r["text"] for r, _ in self.unmet()][:6], "reqs": len(self.reqs), "blocked": [r["text"][:80] for r in self.reqs if rstat(r) == "blocked"][:6]}
 
     def state(self):
         return {"tasks": self.tasks, "project": str(self.project) if self.project else None, "phase": self.phase, "files": sorted(self.files), "last_test": self.last_test, "compactions": self.n_compact,
                 "counts": {"calls": self.n_calls, "valid": self.n_valid, "invalid": self.n_invalid, "errors": self.n_err, "tool_time": dict(self.tool_time), "tool_n": dict(self.tool_n)},
-                "ledger": self.ledger[-150:], "reqs": self.reqs, "last_mut": self.last_mut,
+                "ledger": self.ledger[-150:], "reqs": self.reqs, "last_mut": self.last_mut, "epoch": self.epoch, "sig_counts": dict(list(self.sig_counts.items())[-40:]),
                 "elapsed_total": self.conv.get("run", {}).get("elapsed_total", 0) + int(self.elapsed())}
 
     def push_status(self): self.emit({"type": "status", **self.status()})
@@ -775,7 +801,7 @@ class Agent:
         elif name == "run_tests":
             self._ev("test", ok, detail=(self.last_test or {}).get("summary", ""))
         elif name == "http_check" and self._http:
-            h = self._http; self._ev("http", h["ok"], url=h["url"], host=url_host(h["url"]), local=is_local(url_host(h["url"])), status=h["status"], error=h.get("error"))
+            h = self._http; self._ev("http", h["ok"], url=h["url"], host=url_host(h["url"]), local=is_local(url_host(h["url"])), status=h["status"], error=h.get("error"), bytes=h.get("bytes", 0), antibot=bool(h.get("antibot")))
         elif name == "bash":
             cmd = urllib.parse.unquote(str(args.get("command", "")))
             if re.search(r"pytest|npm (run )?test|go test|cargo test", cmd) and not re.search(r"\b(pip3?|npm)\s+install\b", cmd) and self.last_test:
@@ -783,7 +809,8 @@ class Agent:
             if HTTP_CLIENT.search(cmd):
                 m = re.search(r"\b([1-5]\d\d)\b", out.split("[código")[0][-400:]) if ok else None
                 for u in list(dict.fromkeys(URL_RX.findall(cmd)))[:4]:
-                    self._ev("http", ok, url=u, host=url_host(u), local=is_local(url_host(u)), status=int(m.group(1)) if m and ok else None, via="bash")
+                    stt = int(m.group(1)) if m and ok else None
+                    self._ev("http", ok and (stt is None or stt < 400), url=u, host=url_host(u), local=is_local(url_host(u)), status=stt, via="bash", bytes=len(out), antibot=is_antibot(stt, "", out[:600]))
             if ok and re.search(r"docker( compose|-compose)?\s+(compose\s+)?(up|run)\b", cmd): self._ev("service", True, detail="docker up")
             if ok and re.search(r"\bpkill|kill\b", cmd): pass
         elif name == "proc_start":
@@ -796,6 +823,11 @@ class Agent:
         url = str(a.get("url", "")).strip()
         if not re.match(r"https?://", url): return False, "url debe empezar por http:// o https://"
         h = http_probe(url, str(a.get("method") or "GET").upper(), min(int(a.get("timeout") or 15), 60), contains=a.get("contains"))
+        if a.get("expect_status") not in (None, ""):
+            try: h["ok"] = h["status"] == int(a["expect_status"]) and (a.get("contains") is None or h["error"] is None)
+            except (TypeError, ValueError): pass
+            if h["status"] is not None and not h["ok"] and not h["error"]: h["error"] = f"se esperaba HTTP {a['expect_status']} y se recibió {h['status']}"
+        h["antibot"] = is_antibot(h["status"], h.get("server", ""), h.get("snippet", ""))
         self._http = h
         local = is_local(url_host(url))
         txt = (f"HTTP {h['status']} · {h['seconds']}s · {h['bytes']} bytes · servidor: {h['server'] or '?'}" if h["status"] is not None else f"SIN RESPUESTA: {h['error']}")
@@ -803,7 +835,8 @@ class Agent:
         txt += f"\nOrigen de la comprobación: {'LOCAL (localhost/red privada: NO demuestra una URL pública)' if local else 'URL externa/pública'}"
         if h["error"] and h["status"] is not None: txt += f"\n{h['error']}"
         if h["snippet"]: txt += "\nFragmento: " + h["snippet"]
-        if h["status"] in (401, 403, 429, 503): txt += "\n[Posible bloqueo/antibot: infórmalo tal cual; no lo presentes como éxito]"
+        if h.get("antibot"): txt += "\n[BLOQUEO ANTIBOT (p. ej. DataDome): NO es una extracción exitosa ni datos útiles. Repórtalo como BLOQUEADO y pasa a otras tareas pendientes; no insistas ni intentes evadirlo]"
+        elif h["status"] is not None and h["status"] >= 400: txt += f"\n[HTTP {h['status']}: NO cuenta como servicio disponible/operativo]"
         return h["ok"], txt
 
     def after_last_change(self, kinds, ok=True, since=0, local=None, host=None):
@@ -820,43 +853,74 @@ class Agent:
         if e and any(m["state"] == "en marcha" for m in proc_list()): return True
         return bool(e and e.get("detail") == "docker up")
 
+    def block(self, r, reason, quiet=False):
+        """Marca un criterio como BLOQUEADO: se avisa UNA sola vez y se registra en BLOCKERS.md; ya no insiste ni impide pasar a otras tareas."""
+        if rstat(r) == "blocked": return
+        r["status"], r["reason"] = "blocked", reason
+        if quiet: r["reported"] = True; return
+        if not r.get("reported"):
+            r["reported"] = True; self.log("BLOCKERS.md", f"criterio BLOQUEADO ({r['kind']}): {r['text'][:120]} — {reason}")
+            self.new_blocks.append(f"{r['text'][:110]} — {reason}")
+            self.emit({"type": "blocker", "text": f"⛔ Criterio BLOQUEADO (se avisa una sola vez): {r['text'][:110]} — {reason}"})
+
     def unmet(self):
-        """[(requisito, acción concreta)] de los criterios todavía sin evidencia."""
+        """[(requisito ACTIVO, acción concreta)] sin evidencia. Los retirados/bloqueados/cumplidos no cuentan."""
         out = []
         for r in self.reqs:
-            if r.get("done"): continue
+            if rstat(r) != "active": continue
             since, k = r.get("since", 0), r["kind"]
             if k == "target":
-                e = next((x for x in self.ledger if x["seq"] > since and x["kind"] == "http" and r["key"] in (x.get("host") or "")), None)
-                if not e: out.append((r, f"ejecuta http_check sobre la URL objetivo ({r['key']}) o llama a tu servicio con esa URL y muestra el resultado real"))
+                es = [x for x in self.ledger if x["seq"] > since and x["kind"] == "http" and r["key"] in (x.get("host") or "")]
+                bl = next((x for x in es if x.get("antibot")), None)
+                if bl and not any(x["ok"] and not x.get("antibot") for x in es):
+                    self.block(r, f"HTTP {bl.get('status')} con protección antibot (p. ej. DataDome): bloqueo real del sitio, NO extracción exitosa"); continue
+                if not es: out.append((r, f"ejecuta http_check sobre la URL objetivo ({r['key']}) o llama a tu servicio con esa URL y muestra el resultado real"))
             elif k == "verify":
-                has_target = any(x["kind"] == "target" for x in self.reqs)
-                blocked_attempt = has_target and any(e["seq"] > max(since, self.last_mut) and e["kind"] == "http" and e.get("status") for e in self.ledger)   # 403/captcha reportado = intento real
-                if not (self.after_last_change(("test",), True, since) or self.after_last_change(("http",), True, since) or blocked_attempt):
-                    out.append((r, "ejecuta run_tests y/o http_check AHORA (la evidencia anterior no vale: es previa a tu último cambio o a esta petición)"))
+                tb = [x for x in self.reqs if x["kind"] == "target" and rstat(x) == "blocked" and x.get("epoch") == r.get("epoch")]
+                if tb and not (self.after_last_change(("test",), True, since) or self.after_last_change(("http",), True, since)):
+                    self.block(r, "la prueba contra la URL objetivo está bloqueada (antibot); no es una prueba superada", quiet=True); continue
+                if not (self.after_last_change(("test",), True, since) or self.after_last_change(("http",), True, since)):
+                    out.append((r, "ejecuta run_tests y/o http_check AHORA (un 404/500 no vale; la evidencia anterior al último cambio tampoco)"))
             elif k == "deploy":
-                if not self.service_ok(since): out.append((r, "arranca el servicio con proc_start y compruébalo con http_check (la URL debe responder 2xx/3xx)"))
+                if not self.service_ok(since): out.append((r, "arranca el servicio con proc_start y compruébalo con http_check (debe responder 2xx/3xx; un 404 no vale)"))
+            elif k == "local":
+                if not self.after_last_change(("http",), True, since, local=True): out.append((r, "comprueba con http_check el servicio local (http://127.0.0.1:<puerto>/...) con respuesta 2xx/3xx"))
             elif k == "public":
                 if not self.after_last_change(("http",), True, since, local=False): out.append((r, "comprueba con http_check la URL PÚBLICA (https://<POD_ID>-<puerto>.proxy.runpod.net o la que corresponda); localhost no cuenta"))
             elif k == "git":
                 if not self.after_last_change(("git_push",), True, since): out.append((r, "git_commit y git_push a la rama (verifica el hash remoto)"))
         return out
 
-    def add_requirements(self, text):
+    def add_requirements(self, text, skip_kinds=()):
         new = []
-        have = {(r["kind"], r["key"]) for r in self.reqs if not r.get("done")}
+        have = {(r["kind"], r["key"]) for r in self.reqs if rstat(r) in ("active", "blocked")}
         for r in extract_requirements(text):
-            if (r["kind"], r["key"]) not in have:
-                r.update(since=self.seq, added=now_s()); self.reqs.append(r); new.append(r)
-        self.reqs = self.reqs[-30:]
+            if r["kind"] in skip_kinds or (r["kind"], r["key"]) in have: continue
+            r.update(since=self.seq, added=now_s(), status="active", epoch=self.epoch); self.reqs.append(r); new.append(r)
+        self.reqs = [x for x in self.reqs if rstat(x) != "done"][-24:] + [x for x in self.reqs if rstat(x) == "done"][-6:]
         return new
 
     def settle(self):
-        """Marca como cumplidos los criterios con evidencia (se llama antes de evaluar)."""
+        """Marca como cumplidos los criterios ACTIVOS con evidencia."""
         pend = {id(r) for r, _ in self.unmet()}
         for r in self.reqs:
-            if id(r) not in pend and not r.get("done"): r["done"] = True
+            if rstat(r) == "active" and id(r) not in pend: r["done"] = True; r["status"] = "done"
         return self.reqs
+
+    def retire(self, idx, reason="retirado por el usuario"):
+        if not 0 <= idx < len(self.reqs): return False
+        r = self.reqs[idx]; r["status"], r["reason"] = "retired", reason; r.pop("done", None); self.write_acceptance(); return True
+
+    def reactivate(self, idx):
+        if not 0 <= idx < len(self.reqs): return False
+        r = self.reqs[idx]; r["status"] = "active"; r["since"] = self.seq; r.pop("done", None); r.pop("reported", None); r.pop("reason", None); self.write_acceptance(); return True
+
+    def clear_blocking(self, reason="liberado por el usuario"):
+        """Retira todos los criterios activos/bloqueados para que NO frenen la siguiente tarea (no borra nada: se pueden reactivar)."""
+        n = 0
+        for i, r in enumerate(self.reqs):
+            if rstat(r) in ("active", "blocked"): self.retire(i, reason); n += 1
+        return n
 
     def claim_problems(self, content):
         """Cosas que el modelo AFIRMA en su respuesta final sin que haya prueba ejecutada."""
@@ -891,48 +955,79 @@ class Agent:
             out.append("Estás repitiendo tu resumen anterior en vez de ejecutar lo que el usuario acaba de pedir. Usa herramientas.")
         return out
 
-    def on_user_message(self, text):
-        """Cada instrucción nueva crea criterios nuevos y obliga a un plan nuevo si el anterior estaba completo."""
-        new = self.add_requirements(text)
+    def on_user_message(self, text, steer=False):
+        """Cada instrucción nueva ACTUALIZA los criterios: aplica cambios explícitos, retira los de tareas anteriores y crea los nuevos."""
+        ch = extract_changes(text); self.change_notes = []
+        for i, r in enumerate(self.reqs):
+            if rstat(r) in ("active", "blocked") and r["kind"] in ch["drop"]:
+                self.retire(i, "el usuario cambió el requisito"); self.change_notes.append(f"Criterio retirado por tu cambio: {r['text'][:90]}")
+        pre = extract_requirements(text); pre_keys = {(r["kind"], r["key"]) for r in pre if r["kind"] not in ch["drop"]}
+        if not steer:
+            if pre_keys and not ch["keep_old"]:      # nueva tarea: los criterios pendientes de tareas anteriores dejan de bloquear
+                for i, r in enumerate(self.reqs):
+                    if rstat(r) in ("active", "blocked") and (r["kind"], r["key"]) not in pre_keys and r.get("epoch", 0) < self.epoch + 1:
+                        self.retire(i, "criterio de una tarea anterior (reactivable)"); self.change_notes.append(f"Criterio anterior retirado (tarea nueva; reactivable): {r['text'][:90]}")
+            self.epoch += 1
+        new = self.add_requirements(text, skip_kinds=ch["drop"])
+        if ch["add_local"] and not any(r["kind"] == "local" and rstat(r) == "active" for r in self.reqs):
+            r = {"kind": "local", "key": "ssh", "text": LOCAL_REQ_TEXT, "since": self.seq, "added": now_s(), "status": "active", "epoch": self.epoch}; self.reqs.append(r); new.append(r)
+            self.change_notes.append("Nuevo criterio: acceso local por SSH")
         if self.tasks and all(t["status"] in ("done", "failed", "blocked") for t in self.tasks):
             self.log("PROGRESS.md", f"plan anterior archivado ({len(self.tasks)} tareas); nueva instrucción recibida"); self.tasks = []
+        for n_ in self.change_notes: self.log("DECISIONS.md", n_)
         self.need_plan = bool(new) or self.need_plan
         self.plan_set_turn = False
         if self.project:
             try:
-                with open(self.project / "TASK.md", "a") as f: f.write(f"\n\n## Instrucción del usuario ({now_s()})\n\n{redact(text)[:8000]}\n")
+                with open(self.project / "TASK.md", "a") as f: f.write(f"\n\n## {'Comentario' if steer else 'Instrucción'} del usuario ({now_s()})\n\n{redact(text)[:8000]}\n")
             except OSError: pass
         self.write_acceptance()
         return new
 
     def write_acceptance(self):
         if not self.project: return
-        unmet = {id(r) for r, _ in self.unmet()}
-        lines = ["# Criterios de aceptación (verificados por el controlador con evidencia real)", ""]
-        for r in self.reqs: lines.append(f"- [{'x' if r.get('done') or id(r) not in unmet else ' '}] ({r['kind']}) {r['text']}")
+        mark = {"done": "x", "active": " ", "blocked": "B", "retired": "-"}
+        lines = ["# Criterios de aceptación (verificados por el controlador con evidencia real)", "", "Leyenda: [ ] activo · [x] cumplido · [B] bloqueado (avisado una vez) · [-] retirado (se puede reactivar)", ""]
+        un = {id(r) for r, _ in self.unmet()}
+        for r in self.reqs:
+            st_ = rstat(r); st_ = "done" if st_ == "active" and id(r) not in un else st_
+            lines.append(f"- [{mark[st_]}] ({r['kind']}) {r['text']}" + (f" — {r['reason']}" if r.get("reason") else ""))
         try: (self.project / "ACCEPTANCE.md").write_text("\n".join(lines) + "\n")
         except OSError: pass
 
+    def service_levels(self):
+        """Los 5 niveles, separados: accesible ≠ operativo ≠ extracción ejecutada ≠ datos útiles ≠ despliegue público."""
+        lm = self.last_mut
+        loc = [e for e in self.ledger if e["seq"] > lm and e["kind"] == "http" and e.get("local")]
+        ext = [e for e in self.ledger if e["kind"] == "http" and not e.get("local")]
+        targets = [r["key"] for r in self.reqs if r["kind"] == "target" and rstat(r) != "retired"]
+        att = [e for e in ext if any(k in (e.get("host") or "") for k in targets)] if targets else []
+        useful = [e for e in att if e["ok"] and not e.get("antibot") and (e.get("bytes") or 0) >= 200]
+        pub = [e for e in ext if e["seq"] > lm and e["ok"] and not e.get("antibot")]
+        anti = [e for e in att if e.get("antibot")]
+        return {"accesible": bool(loc and any(e.get("status") is not None for e in loc)), "operativo": bool(any(e["ok"] for e in loc)),
+                "extraccion": (f"SÍ ({len(att)} petición/es)" + (" — BLOQUEADA por antibot" if anti and not useful else "")) if att else "NO",
+                "datos": "SÍ (respuesta 2xx con contenido)" if useful else ("NO — bloqueado por antibot (DataDome/captcha)" if anti else "NO"),
+                "publico": bool(pub)}
+
     def verified_report(self):
-        """Estado REAL, separado: GIT vs APLICACIÓN vs PRUEBAS vs REQUISITOS. Lo calcula el controlador, no el modelo."""
+        """Estado REAL, separado: GIT vs APLICACIÓN (5 niveles) vs PRUEBAS vs CRITERIOS. Lo calcula el controlador, no el modelo."""
         L = ["**Estado verificado por el controlador** (comprobaciones reales, no el resumen del modelo)"]
         _, br = git("rev-parse", "--abbrev-ref", "HEAD"); _, head = git("rev-parse", "HEAD"); head = head.strip()
         rh, err = remote_hash(ENV.branch); _, dirty = git("status", "--porcelain")
         n_dirty = len([l for l in dirty.splitlines() if l.strip()])
         L.append(f"- **Git**: rama local `{br.strip()}` @{head[:8]} · rama de publicación `{ENV.branch}` en GitHub: " + (f"@{rh[:8]} ({'COINCIDE' if rh == head else 'DIFIERE del commit local'})" if rh else "no existe/no consultable") + f" · {n_dirty} archivos sin commitear")
-        procs = proc_list()
-        L.append("- **Aplicación (procesos)**: " + ("; ".join(f"{p['name']}: {p['state']}" for p in procs) if procs else "ninguno gestionado por el panel"))
-        https = [e for e in self.ledger if e["kind"] == "http"][-4:]
-        if https:
-            for e in https:
-                live = http_probe(e["url"], timeout=6) if e["seq"] > self.last_mut else None
-                L.append(f"- **HTTP** {e['url']}: {'OK' if e['ok'] else 'FALLÓ'}" + (f" (estado {e.get('status')})" if e.get("status") else "") + (" · local" if e.get("local") else " · externa") +
-                         (f" · ahora: {live['status'] if live['status'] is not None else live['error']}" if live else " · evidencia anterior al último cambio"))
-        else: L.append("- **HTTP**: ninguna petición ejecutada")
+        procs = proc_list(); lv = self.service_levels()
+        L.append("- **Aplicación**: procesos: " + ("; ".join(f"{p['name']}: {p['state']}" for p in procs) if procs else "ninguno gestionado por el panel"))
+        yn = lambda b: "SÍ" if b else "NO"
+        L.append(f"  · Servicio accesible: {yn(lv['accesible'])} · Servicio operativo (2xx/3xx): {yn(lv['operativo'])} · Extracción ejecutada: {lv['extraccion']} · Datos útiles obtenidos: {lv['datos']} · Despliegue público verificado: {yn(lv['publico'])}")
         L.append("- **Pruebas**: " + (f"{'OK' if self.last_test['ok'] else 'FALLARON'} — {self.last_test['summary']}" if self.last_test else "no ejecutadas"))
-        self.settle(); un = self.unmet()
+        self.settle(); un = self.unmet(); bl = [r for r in self.reqs if rstat(r) == "blocked"]; rt = [r for r in self.reqs if rstat(r) == "retired"]
+        if bl: L.append("- **⛔ Criterios BLOQUEADOS** (informe único): " + "; ".join(f"{r['text'][:70]} — {r.get('reason', '')[:90]}" for r in bl))
         if un: L.append("- **⚠ Requisitos SIN cumplir**: " + "; ".join(r["text"] for r, _ in un))
-        elif self.reqs: L.append("- Requisitos del usuario: todos con evidencia")
+        if bl and not un: L.append("- Requisitos SIN cumplir (bloqueados): ver arriba. Los demás trabajos posibles están terminados.")
+        if rt: L.append(f"- Criterios retirados (no bloquean; reactivables desde el panel): {len(rt)}")
+        if not bl and not un and any(rstat(r) == "done" for r in self.reqs): L.append("- Requisitos del usuario: todos con evidencia")
         self.write_acceptance()
         return "\n".join(L)
 

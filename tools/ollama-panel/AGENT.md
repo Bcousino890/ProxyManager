@@ -46,3 +46,11 @@ El controlador ya no acepta «terminado» por la palabra del modelo:
 - `plan done` exige evidencia según el tipo de tarea (pruebas, HTTP, URL pública, despliegue, GitHub).
 - Al cerrar se añade un **«Estado verificado»** con Git (rama, hash local/remoto, sin commitear) y Aplicación (procesos, HTTP, pruebas) por separado; si quedan requisitos sin evidencia el resultado es **INCOMPLETO**.
 - Despliegue de un pod nuevo: ver `DEPLOY.md` y la sección «Despliegue» del panel.
+
+## Ciclo de vida de los criterios (v3)
+- Estados: **ACTIVO** (se verifica) · **CUMPLIDO** · **BLOQUEADO** (se avisa UNA vez y se registra en `BLOCKERS.md`; el agente pasa a otras tareas) · **RETIRADO** (no bloquea; reactivable).
+- Cada instrucción nueva *actualiza* los criterios: aplica cambios explícitos («la URL pública ya no es obligatoria, acceso local por SSH» retira `public` y crea el criterio `local`), y retira los pendientes de tareas anteriores salvo que digas «continúa/además/también». Los comentarios en vivo no retiran nada.
+- UI (barra de estado → «Cambiar criterio…», ✕ retirar, ↺ reactivar, «Liberar criterios», «■ Detener tarea») y API: `GET/POST /api/criteria` (`retire|reactivate|clear|add|replace`). Nada se borra.
+- Sin bucles: cada aviso de cierre se limita a 2 veces por situación (contador persistente entre turnos/reanudaciones); después los criterios implicados pasan a BLOQUEADO y se cierra con un único informe. Los avisos internos idénticos no se reenvían.
+- HTTP 404/500 nunca cuentan como disponible (`expect_status` en `http_check`). Un 401/403/429/503 con firma antibot (DataDome, captcha…) = BLOQUEO, no extracción exitosa.
+- El informe verificado separa 5 niveles: servicio accesible · operativo (2xx/3xx) · extracción ejecutada · datos útiles · despliegue público verificado.

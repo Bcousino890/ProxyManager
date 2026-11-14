@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Panel del Pod</title>
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <div class="app">
@@ -79,7 +79,8 @@
     <div class="agentbar" id="agentbar" hidden>
       <div class="ab-head" id="abHead" role="button" tabindex="0" title="Ver detalle"><span id="abPhase">—</span><span id="abTask" class="muted"></span><span class="grow"></span><span id="abTime" class="muted"></span><button class="btn primary" id="abResume" hidden style="padding:3px 10px">↻ Reanudar</button><span class="muted">▾</span></div>
       <div class="ab-body" id="abBody" hidden><div class="ab-grid" id="abGrid"></div><ul class="ab-tasks" id="abTasks"></ul>
-      </div>
+      <ul class="ab-crit" id="abCrit"></ul>
+        <div class="btns"><button class="btn" id="abClear" title="Retira los criterios activos/bloqueados para que no frenen la tarea (reversible)">Liberar criterios</button><button class="btn" id="abAddCrit">Cambiar criterio…</button><button class="btn stop" id="abStop">■ Detener tarea</button></div></div>
     </div>
     <footer class="composer-wrap">
       <div class="composer">
@@ -131,6 +132,6 @@
   </form>
 </dialog>
 <div class="toast" id="toast" hidden></div>
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
