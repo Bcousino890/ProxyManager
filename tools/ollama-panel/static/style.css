@@ -112,9 +112,19 @@ details.think .tt{white-space:pre-wrap;margin-top:6px;max-height:260px;overflow:
 .jump{position:absolute;right:28px;bottom:150px;border:1px solid var(--line);background:var(--panel);box-shadow:0 2px 10px rgb(0 0 0/.18);border-radius:99px;padding:7px 14px;font-size:13px;color:var(--accent);font-weight:600;z-index:3}
 .main{position:relative}
 
-.agentbar{margin:0 auto;max-width:860px;width:calc(100% - 24px);border:1px solid var(--line,#2a2f3a);border-radius:10px;padding:6px 10px;font-size:12.5px;background:var(--card,#161a22)}
+.agentbar{margin:0 auto;max-width:860px;width:calc(100% - 24px);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:12.5px;background:var(--panel);color:var(--text)}
 .agentbar summary{display:flex;gap:10px;cursor:pointer;align-items:center}.agentbar summary .grow{flex:1}
 .ab-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:4px 12px;margin:8px 0}
 .ab-tasks{list-style:none;margin:4px 0;padding:0}.ab-tasks li{padding:2px 0}
-.st-PENDIENTE{color:#8b93a1}.st-EJECUTANDO{color:#e0b341}.st-COMPLETADO{color:#4cc38a}.st-FALLIDO{color:#ef6b6b}.st-BLOQUEADO{color:#ef9b4b}
+.st-PENDIENTE{color:var(--muted)}.st-EJECUTANDO{color:var(--warn)}.st-COMPLETADO{color:var(--ok)}.st-FALLIDO{color:var(--bad)}.st-BLOQUEADO{color:#ef9b4b}
 #ghDlg label{display:block;margin:6px 0}#ghDlg input,#ghDlg select{width:100%;margin-top:2px}
+.agentbar{flex:none;margin:0 24px 8px;width:auto;max-width:none;max-height:38vh;overflow:auto;background:var(--panel)!important;color:var(--text)!important;box-shadow:0 1px 6px rgb(0 0 0/.08)}
+.agentbar[hidden]{display:none}
+.agentbar summary{min-height:24px;list-style:none;color:var(--text)}.agentbar summary::-webkit-details-marker{display:none}
+.agentbar summary #abPhase{font-weight:600;color:var(--accent)}
+@media(max-width:820px){.agentbar{margin:0 12px 8px}}
+
+.agentbar{display:block;padding:0}
+.ab-head{display:flex;align-items:center;gap:10px;padding:7px 12px;cursor:pointer;height:34px;overflow:hidden;white-space:nowrap}
+.ab-head #abTask{overflow:hidden;text-overflow:ellipsis}.ab-head .grow{flex:1}
+.ab-body{padding:2px 12px 10px;border-top:1px solid var(--line)}

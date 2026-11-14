@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Panel del Pod</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <div class="app">
@@ -68,11 +68,11 @@
     <div class="scroll" id="scroll"><div class="thread" id="thread"></div></div>
 
     <button class="jump" id="jump" hidden>↓ Ir al final</button>
-    <details class="agentbar" id="agentbar" hidden>
-      <summary><span id="abPhase">—</span><span id="abTask" class="muted"></span><span class="grow"></span><span id="abTime" class="muted"></span></summary>
-      <div class="ab-grid" id="abGrid"></div><ul class="ab-tasks" id="abTasks"></ul>
-      <div class="btns"><button class="btn" id="abResume" hidden>↻ Reanudar</button></div>
-    </details>
+    <div class="agentbar" id="agentbar" hidden>
+      <div class="ab-head" id="abHead" role="button" tabindex="0" title="Ver detalle"><span id="abPhase">—</span><span id="abTask" class="muted"></span><span class="grow"></span><span id="abTime" class="muted"></span><span class="muted">▾</span></div>
+      <div class="ab-body" id="abBody" hidden><div class="ab-grid" id="abGrid"></div><ul class="ab-tasks" id="abTasks"></ul>
+      <div class="btns"><button class="btn" id="abResume" hidden>↻ Reanudar</button></div></div>
+    </div>
     <footer class="composer-wrap">
       <div class="composer">
         <div class="tray" id="tray" hidden></div>
@@ -123,6 +123,6 @@
   </form>
 </dialog>
 <div class="toast" id="toast" hidden></div>
-<script src="app.js"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

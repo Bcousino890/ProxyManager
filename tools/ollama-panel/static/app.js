@@ -176,7 +176,7 @@ async function send(text, opts = {}) {
       const {value, done} = await rd.read(); if (done) break;
       buf += dec.decode(value, {stream: true}); let i;
       while ((i = buf.indexOf('\n\n')) >= 0) {
-        const line = buf.slice(0, i).replace(/^data: /, ''); buf = buf.slice(i + 2); if (!line) continue;
+        const line = buf.slice(0, i).replace(/^data: /, ''); buf = buf.slice(i + 2); if (!line || line.startsWith(':')) continue;
         const ev = JSON.parse(line); typing.remove();
         switch (ev.type) {
           case 'thinking': { if (!think) { const d = el('details', 'think', '<summary>💭 Razonando…</summary>'); d.open = true; think = el('div', 'tt'); d.append(think); parent.insertBefore(d, typing.isConnected ? typing : null); }
@@ -223,6 +223,7 @@ function paintAgent(s, status) {
   $('#abResume').hidden = !(['interrupted', 'blocked', 'incomplete', 'budget', 'stopped'].includes(status) && !S.busy);
 }
 $('#abResume').onclick = () => send('', {resume: true});
+$('#abHead').onclick = () => { $('#abBody').hidden = !$('#abBody').hidden; };
 
 // ---------- estado y conversaciones
 async function loadStatus() {
