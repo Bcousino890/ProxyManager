@@ -1,3 +1,3 @@
-from .engine import ScrapingEngine, WebScraper
+from .engine import ScrapingEngine
 
-__all__ = ["ScrapingEngine", "WebScraper"]
+__all__ = ["ScrapingEngine"]

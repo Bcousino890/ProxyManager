@@ -22,3 +22,6 @@ fatal: pathspec '/ProxyManager/pod-work/pod-work/scraping-engine/src/scraping_en
 - 2026-11-14 01:03:26 estancamiento (2): repites web_fetch con los mismos argumentos y el resultado no ha cambiado
 - 2026-11-14 01:25:33 Ollama no responde: HTTP Error 500: Internal Server Error
 - 2026-11-14 01:31:59 COMMIT BLOQUEADO: posibles secretos o archivos sensibles → pod-work/scraping-engine/proxies.txt (archivo sensible por su nombre). Se han sacado del índice. Quita el secreto (usa variables de entorno / .env ignorado por git) y vuelve a intentarlo.
+- 2026-11-14 01:34:38 tarea 1 FALLIDO: No se pudo obtener RUNPOD_POD_ID. El dominio proxy.runpod.net no resuelve. No se puede construir URL pública.
+- 2026-11-14 01:35:26 tarea 2 FALLIDO: Acceso al API de RunPod fallido (HTTP 404). No se puede obtener RUNPOD_POD_ID para construir URL pública.
+- 2026-11-14 01:36:48 tarea 1 FALLIDO: No se puede acceder al API de RunPod sin una clave válida. La variable RUNPOD_API_KEY no está definida en el entorno.

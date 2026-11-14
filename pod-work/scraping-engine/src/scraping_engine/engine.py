@@ -57,35 +57,51 @@ class ScrapingEngine:
                 )
 
     async def _scrape_with_httpx(self, url: str, proxy_url: Optional[str]) -> ScrapingResult:
-        async with httpx.AsyncClient(proxies=proxy_url) as client:
-            try:
-                response = await client.get(url)
-                is_datadome = 'datadome' in response.headers.get('server', '').lower() or \
-                              'datadome' in response.headers.get('x-datadome', '').lower()
-                
-                return ScrapingResult(
-                    url=url,
-                    status_code=response.status_code,
-                    content_type=response.headers.get('content-type', ''),
-                    content=response.text,
-                    duration_ms=0,
-                    is_datadome_blocked=is_datadome
-                )
-            except Exception as e:
-                return ScrapingResult(
-                    url=url,
-                    status_code=500,
-                    content_type="",
-                    content="",
-                    duration_ms=0,
-                    is_datadome_blocked=False,
-                    error=str(e)
-                )
+        try:
+            # Configurar el cliente httpx con proxy si se proporciona
+            if proxy_url:
+                # Para httpx, los proxies se pasan como un diccionario con claves 'http' y 'https'
+                proxies = {
+                    "http": proxy_url,
+                    "https": proxy_url
+                }
+                async with httpx.AsyncClient(proxies=proxies) as client:
+                    response = await client.get(url)
+            else:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url)
+                    
+            is_datadome = 'datadome' in response.headers.get('server', '').lower() or \
+                          'datadome' in response.headers.get('x-datadome', '').lower()
+            
+            return ScrapingResult(
+                url=url,
+                status_code=response.status_code,
+                content_type=response.headers.get('content-type', ''),
+                content=response.text,
+                duration_ms=0,
+                is_datadome_blocked=is_datadome
+            )
+        except Exception as e:
+            return ScrapingResult(
+                url=url,
+                status_code=500,
+                content_type="",
+                content="",
+                duration_ms=0,
+                is_datadome_blocked=False,
+                error=str(e)
+            )
 
     async def _scrape_with_playwright(self, url: str, proxy_url: Optional[str]) -> ScrapingResult:
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True, proxy={"server": proxy_url} if proxy_url else None)
+                # Usar el proxy si se proporciona
+                launch_options = {"headless": True}
+                if proxy_url:
+                    launch_options["proxy"] = {"server": proxy_url}
+                
+                browser = await p.chromium.launch(**launch_options)
                 page = await browser.new_page()
                 response = await page.goto(url)
                 
@@ -104,6 +120,8 @@ class ScrapingEngine:
                     is_datadome_blocked=is_datadome
                 )
         except Exception as e:
+            # Registrar el error para depuración
+            print(f"Error en _scrape_with_playwright: {e}")
             return ScrapingResult(
                 url=url,
                 status_code=500,
