@@ -36,3 +36,13 @@ Escáner de secretos (tokens, claves privadas, credenciales en URLs/proxies, `.e
 - Pruebas: `cd tools/ollama-panel && python3 -m pytest tests -q` (Ollama falso, sin GPU).
 - Despliegue seguro: `bash /root/restart-panel-safe.sh` (prueba en otro puerto, sustituye, revierte si falla). Reversión manual: `bash /root/rollback-panel.sh`.
 - Métricas: `GET /api/metrics`; registro por conversación: `~/.pod-panel/toollog/<id>.jsonl`.
+
+## Finalización basada en evidencia (v2)
+El controlador ya no acepta «terminado» por la palabra del modelo:
+- **Criterios de aceptación** deducidos de cada instrucción del usuario (URL objetivo → petición real; «pruébalo» → prueba ejecutada ahora; «publicar/desplegar» → servicio vivo + HTTP + `git_push` verificado; «URL pública» → `http_check` a host no local). Se guardan en `ACCEPTANCE.md` y sobreviven a la compactación y a Reanudar.
+- **Libro de evidencias** (`ledger`): `http_check`, pruebas, servicios, commit/push. La evidencia anterior al último cambio de código **caduca**.
+- **Afirmaciones**: si la respuesta final dice «funciona / desplegado / pública / pruebas pasan / subido a GitHub» sin la evidencia correspondiente, se rechaza (hasta 4 veces) y se pide ejecutar herramientas. `localhost` nunca es «URL pública»; añadir `public_url` a la configuración no publica nada. Un 403/captcha se reporta como intento real, no como éxito.
+- **Instrucción nueva** → plan archivado y plan nuevo obligatorio; repetir el resumen anterior se detecta y se rechaza.
+- `plan done` exige evidencia según el tipo de tarea (pruebas, HTTP, URL pública, despliegue, GitHub).
+- Al cerrar se añade un **«Estado verificado»** con Git (rama, hash local/remoto, sin commitear) y Aplicación (procesos, HTTP, pruebas) por separado; si quedan requisitos sin evidencia el resultado es **INCOMPLETO**.
+- Despliegue de un pod nuevo: ver `DEPLOY.md` y la sección «Despliegue» del panel.

@@ -53,7 +53,9 @@ Reglas generales:
 - El tiempo restante y el estado real te los da el sistema en el bloque [ESTADO REAL …] al final del último mensaje: nunca inventes el tiempo. Reserva el último tramo para pruebas, revisión de secretos, commit, push y verificación; si falta tiempo, recorta funcionalidades secundarias y entrega algo funcional.
 - Proyectos grandes: crea la carpeta con project_init (TASK/PLAN/PROGRESS/DECISIONS/TEST_RESULTS/BLOCKERS). Esos archivos sobreviven a la compactación del contexto: anota decisiones y bloqueos con memory_update. Si recibes [CONTEXTO RECUPERADO], continúa desde ahí sin repetir trabajo.
 - Lee archivos grandes por partes (read_file offset/limit) y busca con search_files antes de leer enteros. Para cambios pequeños usa edit_file, no reescribas el archivo. Servicios y procesos que no terminan: proc_start (nunca bash a pie), y revisa con inspect_logs.
-- El proyecto del usuario ya está clonado en {REPO}: para analizarlo léelo ahí, NO lo vuelvas a clonar. Lo que crees nuevo va en {WORKDIR}; el panel lo guarda en GitHub (rama {BRANCH}) al terminar. Para publicar tú: git_commit (revisa secretos) y git_push a la rama; main/master requieren aprobación del usuario; nunca force push.
+- El proyecto del usuario ya está clonado en {REPO}: para analizarlo léelo ahí, NO lo vuelvas a clonar. Lo que crees nuevo va en {WORKDIR}; el panel lo guarda en GitHub (rama {BRANCH}) al terminar. Para publicar tú: git_commit (revisa secretos) y git_push a la rama; una rama protegida distinta de la configurada (main/master) requiere aprobación del usuario; nunca force push.
+- PRUEBAS REALES, no palabras: una URL «funciona» solo si http_check devolvió 2xx/3xx; «desplegado» solo si el servicio está vivo (proc_start) y responde a http_check; «URL pública» solo si http_check a un host NO local (no localhost) lo confirma — añadir una variable `public_url` no es publicar; «pruebas pasan» solo con run_tests; «publicado en GitHub» solo con git_push verificado. El estado de Git y el de la aplicación son cosas distintas: informa de ambos por separado. Un 403/captcha/DataDome se reporta tal cual, no como éxito.
+- Cada instrucción nueva del usuario («pruébalo», «publícalo», «arréglalo») exige un plan nuevo y ejecutar herramientas ahora; nunca respondas repitiendo un resumen anterior. El sistema rechaza cerrar la tarea si faltan pruebas de lo pedido.
 - Si repites una acción y el resultado no cambia, o el mismo error se repite, CAMBIA de estrategia: inspecciona la causa en vez de reintentar igual.
 - Si el usuario pide que le avises (al terminar o después de algo), usa la herramienta notify con un resumen breve; además el panel avisa solo al terminar cada tarea.
 - Nunca escribas secretos, tokens ni credenciales de proxies en archivos ni en commits (usa variables de entorno / .env ignorado por git). Si algo falla, lee el error, corrígelo y reintenta; no lo ocultes ni digas que funciona si la última salida real dice lo contrario.
@@ -155,7 +157,7 @@ def set_config(b):
     if "branch" in b:
         v = (b["branch"] or "").strip()
         if not re.fullmatch(r"[\w][\w./\-]{0,60}", v) or ".." in v: errs.append("rama inválida")
-        elif v in kit.PROTECTED: errs.append("la rama de trabajo del agente no puede ser main/master; usa «Integrar» para llevar cambios a main")
+        elif v in kit.PROTECTED and not b.get("allow_main"): errs.append("main/master exige confirmación explícita (allow_main) desde el diálogo de GitHub")
         else: c["branch"] = v
     if "workdir" in b:
         v = (b["workdir"] or "").strip().strip("/")
@@ -396,7 +398,8 @@ def needs_approval(name, args):
     if name == "bash":
         return bool(DANGEROUS.search(args.get("command", "")))
     if name == "git_push":
-        return str(args.get("branch") or "").strip() in kit.PROTECTED
+        b = str(args.get("branch") or BRANCH).strip()
+        return b in kit.PROTECTED and b != BRANCH     # la rama configurada por el usuario (p. ej. main) no pide aprobación; cualquier otra protegida sí
     return False
 
 def legacy_exec(name, args):
@@ -508,7 +511,7 @@ def call_model(ag, view_fn, emit, stop, model, tools, think):
         return content, calls, stats
     return "", [], {}
 
-def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_min=None):
+def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_min=None, resume=False):
     """Controlador: PLANIFICAR → EJECUTAR → OBSERVAR → EVALUAR → CORREGIR → VERIFICAR → CONTINUAR. Devuelve el resultado:
     done | stopped | blocked | budget | error | incomplete."""
     model = THINK_MODEL if think else (model or MODEL)
@@ -521,7 +524,21 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
     if mode == "agent" and not ag.project and len(first) >= 300:
         ag.init_project("sesion", first[:20000], session=True)
         emit({"type": "notice", "text": f"Memoria de la tarea guardada en {ag.project} (TASK/PLAN/PROGRESS/DECISIONS/TEST_RESULTS/BLOCKERS); pasa a la carpeta del proyecto cuando el agente llame a project_init."})
-    st = {"wrote": False, "ran": False, "nv": False, "ne": False, "nf": 0, "refused": False, "intent": 0, "pend": 0, "parse": 0}
+    st = {"wrote": False, "ran": False, "nv": False, "ne": False, "nf": 0, "refused": False, "intent": 0, "pend": 0, "parse": 0, "gate": 0, "gate_total": 0}
+    user_msgs = [(m.get("display") or m["content"]) for m in msgs if m["role"] == "user" and not m.get("hidden") and not m.get("shell")]
+    if mode == "agent" and user_msgs:
+        if resume:
+            if not ag.reqs:
+                for u in user_msgs: ag.add_requirements(u)
+                for r in ag.reqs: r["since"] = 0
+        else:
+            ag.on_user_message(user_msgs[-1])
+        ag.settle(); un = ag.unmet()
+        if ag.reqs:
+            msgs.append({"role": "user", "hidden": True, "content": "CRITERIOS DE ACEPTACIÓN detectados en lo que pide el usuario (el sistema los verifica con evidencia REAL; cerrar sin cumplirlos será rechazado):\n" +
+                         "\n".join(f"- [{'PENDIENTE' if any(r is x for x, _ in un) else 'CUMPLIDO'}] {r['text']}" for r in ag.reqs if not r.get("done") or resume) +
+                         "\nCrea ahora un plan (plan action=set) que los cubra y EJECÚTALO con herramientas. No repitas resúmenes anteriores: actúa sobre la última petición del usuario. Para probar una URL usa http_check; para desplegar usa proc_start + http_check; para publicar en GitHub usa git_commit + git_push."})
+            ag.write_acceptance()
     max_steps = RESEARCH_STEPS if mode == "research" else MAX_STEPS
     outcome = "incomplete"
     def save(status="running"):
@@ -564,8 +581,17 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
         if stats.get("tps"):
             ag.tps.append(stats["tps"]); LAST_SPEED["tps"] = stats["tps"]
         nudge = None
+        probs = []
+        if mode == "agent" and not calls and content.strip() and not LOOKS_LIKE_CALL.search(content):
+            prev_final = next((m.get("content") for m in reversed(msgs) if m["role"] == "assistant" and not m.get("tool_calls") and not m.get("hidden") and m.get("content")), None)
+            probs = ag.completion_problems(content, prev_final)
         if mode != "chat" and not calls and content:
-            if LOOKS_LIKE_CALL.search(content):
+            if probs and st["gate"] < 4 and st["gate_total"] < 12:
+                st["gate"] += 1; st["gate_total"] += 1
+                nudge = ("NO puedes cerrar la tarea todavía. Faltan pruebas reales de lo que afirmas o de lo que se pidió:\n- " + "\n- ".join(probs[:6]) +
+                         "\nEjecuta AHORA las herramientas necesarias (http_check, run_tests, proc_start, git_push…) y reporta el resultado REAL, aunque sea un fallo o un bloqueo (403/captcha/DataDome). "
+                         "Si algo no se puede lograr, dilo con la evidencia en vez de afirmar que funciona.")
+            elif LOOKS_LIKE_CALL.search(content):
                 ag.n_invalid += 1; ag.strag.parsefail += 1; st["parse"] += 1
                 nudge = ("Tu llamada a herramienta estaba mal formada y NO se ejecutó. Vuelve a emitirla con el formato de herramientas (nombre y argumentos como JSON válido, strings escapados). "
                          "Si el contenido es muy largo, divídelo en varias llamadas write_file/edit_file más pequeñas.")
@@ -601,7 +627,7 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
         a = {"role": "assistant", "content": content, "stats": {k: v for k, v in stats.items() if k in ("tokens", "tps")}, **({"thinking": th} if th else {})}
         if calls:
             a["tool_calls"] = [{"id": uuid.uuid4().hex[:8], **c} for c in calls]
-            st["parse"] = 0; st["pend"] = 0
+            st["parse"] = 0; st["pend"] = 0; st["gate"] = 0
         msgs.append(a)
         emit({"type": "assistant_done", "stats": a["stats"]})
         if not calls:
@@ -654,6 +680,21 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
         emit({"type": "notice", "text": f"Alcancé el máximo de {max_steps} pasos. Pulsa Reanudar para seguir."}); outcome = "incomplete"
     if outcome == "done" and mode == "agent" and ag.pending():
         outcome = "incomplete"
+    if mode == "agent" and (ag.reqs or ag.ledger) and outcome in ("done", "incomplete", "budget", "blocked", "stopped"):
+        try:
+            report = ag.verified_report()
+            if outcome == "done" and (ag.unmet() or st["gate"] >= 4):
+                outcome = "incomplete"
+            if outcome == "incomplete" and ag.unmet():
+                report += "\n- Resultado: **INCOMPLETO** — la tarea NO se da por terminada; pulsa Reanudar para continuar con lo pendiente."
+            last = msgs[-1] if msgs else None
+            if last and last["role"] == "assistant" and not last.get("tool_calls"):
+                last["content"] = (last.get("content") or "") + "\n\n---\n" + report
+            else:
+                msgs.append({"role": "assistant", "content": report, "verified": True})
+            emit({"type": "verified", "text": report})
+        except Exception as e:
+            emit({"type": "notice", "text": f"No pude generar el informe verificado: {e}"})
     ag.push_status(); save(outcome)
     return outcome
 
@@ -743,7 +784,7 @@ def run_worker(run, conv, b):
         jsave(conv_path(conv["id"]), conv)
         if run_model:
             bm = b.get("budget_min")
-            outcome = agent_turn(conv, emit, stop, mode, b.get("model") or MODEL, bool(b.get("think")), float(bm) if bm else None)
+            outcome = agent_turn(conv, emit, stop, mode, b.get("model") or MODEL, bool(b.get("think")), float(bm) if bm else None, resume=bool(b.get("resume")))
         else:
             outcome = "done"
         conv["updated"] = time.time()
@@ -783,6 +824,67 @@ def install_hooks():
     except Exception:
         pass
 
+
+# ---------------------------------------------------------------- despliegue (pod/VPS nuevo)
+def deploy_cfg():
+    return jload(STATE_FILE, {}).get("deploy", {})
+
+def set_deploy(b):
+    st = jload(STATE_FILE, {}); d = st.get("deploy", {})
+    if "pod_id" in b:
+        v = (b["pod_id"] or "").strip()
+        if v and not re.fullmatch(r"[a-z0-9]{6,32}", v): return {"ok": False, "msg": "POD_ID inválido (letras minúsculas y números)"}
+        d["pod_id"] = v
+    if "app_port" in b:
+        try: p = int(b["app_port"] or 0)
+        except ValueError: return {"ok": False, "msg": "puerto inválido"}
+        if p and not 1 <= p <= 65535: return {"ok": False, "msg": "puerto fuera de rango"}
+        d["app_port"] = p
+    st["deploy"] = d; jsave(STATE_FILE, st)
+    return {"ok": True}
+
+def public_url():
+    d = deploy_cfg(); pid = os.environ.get("RUNPOD_POD_ID") or d.get("pod_id"); port = d.get("app_port")
+    return (f"https://{pid}-{port}.proxy.runpod.net" if pid and port else None), pid, port
+
+def deploy_check(full=False):
+    """Lista de comprobaciones REALES para dejar un pod/VPS nuevo listo. Cada ítem: ok, detalle y cómo arreglarlo."""
+    items = []
+    def add(id_, label, ok, detail="", fix=""):
+        items.append({"id": id_, "label": label, "ok": bool(ok), "detail": detail, "fix": fix})
+    oi = ollama_info(); add("ollama", "Ollama responde", oi["up"], "" if oi["up"] else "no responde en " + OLLAMA, "bash tools/ollama-panel/deploy/bootstrap.sh")
+    have = oi.get("models", [])
+    for m, why in ((MODEL, "agente"), (THINK_MODEL, "razonar"), (VISION_MODEL, "imágenes")):
+        add("model:" + m, f"Modelo {m} ({why})", m in have, "" if m in have else "no descargado", f"ollama pull {m}")
+    g = gpu_info(); add("gpu", "GPU NVIDIA", bool(g), f"{g['name']} · {g['mem_total'] // 1024} GB" if g else "nvidia-smi no responde")
+    try:
+        mdir = Path(os.environ.get("OLLAMA_MODELS") or Path.home() / ".ollama" / "models"); dfm = subprocess.run(["df", "-P", str(mdir if mdir.exists() else mdir.parent)], capture_output=True, text=True).stdout.splitlines()[-1].split()
+        persistent = dfm[5].startswith("/workspace") or "/workspace" in str(mdir)
+        add("persist", "Modelos en volumen persistente", persistent, f"{mdir} en {dfm[5]} ({int(dfm[3]) // 1048576} GB libres)" + ("" if persistent else " · se pierden si recreas el pod"), "export OLLAMA_MODELS=/workspace/ollama (antes de arrancar Ollama)")
+    except Exception as e:
+        add("persist", "Modelos en volumen persistente", False, str(e)[:80])
+    add("token", "Token de GitHub guardado", bool(token()), "" if token() else "falta", "botón 🔑 del panel")
+    slug = git_info()["repo"]
+    if token() and slug:
+        try:
+            r = _get_json(f"https://api.github.com/repos/{slug}", {"Authorization": f"Bearer {token()}"})
+            add("gh_perm", f"Permiso de escritura en {slug}", (r.get("permissions") or {}).get("push", False), "", "token con permiso repo / Contents: write")
+        except Exception as e:
+            add("gh_perm", f"Acceso a GitHub ({slug})", False, str(e)[:80], "revisa el token o la conexión")
+    rh, err = kit.remote_hash(BRANCH); add("branch", f"Rama de guardado «{BRANCH}» en GitHub", bool(rh), "" if rh else ("aún no existe (se crea en el primer guardado)" if rh == "" else err[:80]))
+    _, cur = git("rev-parse", "--abbrev-ref", "HEAD"); add("on_branch", "Repositorio en la rama de guardado", cur.strip() == BRANCH, f"actual: {cur.strip()}", f"git checkout {BRANCH}")
+    hook = REPO / ".git" / "hooks" / "pre-commit"; add("hook", "Hook anti-secretos instalado", hook.exists() and "panel-secret-scan" in hook.read_text(), "", "reinicia el panel")
+    url, pid, port = public_url()
+    add("pod_id", "POD_ID y puerto de la app configurados", bool(url), url or "indica POD_ID (consola de RunPod) y el puerto HTTP expuesto", "campos de abajo")
+    if port:
+        ls = subprocess.run(["ss", "-ltn"], capture_output=True, text=True).stdout
+        add("port", f"Algo escucha en el puerto {port}", bool(re.search(rf":{port}\s", ls)), "", f"arranca la app con proc_start en el puerto {port}")
+        if url and full:
+            h = kit.http_probe(url, timeout=10)
+            add("public", "URL pública responde", h["ok"], f"HTTP {h['status']}" if h["status"] else (h["error"] or ""), "comprueba que el puerto está en «HTTP Services» de RunPod")
+    ok_all = all(i["ok"] for i in items if i["id"] not in ("persist", "branch", "public", "port", "pod_id", "on_branch"))
+    return {"items": items, "ready": ok_all, "public_url": url, "pod_id": pid, "app_port": port, "branch": BRANCH}
+
 # ---------------------------------------------------------------- HTTP
 class H(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -819,6 +921,9 @@ class H(BaseHTTPRequestHandler):
                 return self.stream_run(r, int(parse_qs(urlparse(self.path).query).get("from", ["0"])[0]))
             if path == "/api/git/verify":
                 return self._json(git_verify())
+            if path == "/api/deploy/check":
+                from urllib.parse import parse_qs
+                return self._json(deploy_check(full=parse_qs(urlparse(self.path).query).get("full", ["0"])[0] == "1"))
             if path == "/api/conversations":
                 items = [jload(p, {}) for p in CONV_DIR.glob("*.json")]
                 items = sorted([c for c in items if c], key=lambda c: -c.get("updated", 0))
@@ -883,6 +988,8 @@ class H(BaseHTTPRequestHandler):
                 return self.chat({**b, "resume": True})
             if path == "/api/config":
                 return self._json(set_config(b))
+            if path == "/api/deploy/config":
+                return self._json(set_deploy(b))
             if path == "/api/git/integrate":
                 return self._json(git_integrate(b.get("target")))
             if path == "/api/git/push":

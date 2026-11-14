@@ -128,7 +128,7 @@ def test_plan_requires_evidence_and_run_tests_parses():
     (proj / "tests" / "test_x.py").write_text("def test_a():\n    assert 1+1 == 2\n")
     ok, out = ag.exec("run_tests", {"path": str(proj), "command": f"{sys.executable} -m pytest -q"})
     assert ok and "APROBADAS" in out and ag.last_test["ok"]
-    assert ag.exec("plan", {"action": "update", "index": 1, "status": "done", "evidence": "run_tests: 1 passed"})[0]
+    assert ag.exec("plan", {"action": "update", "index": 1, "status": "done", "evidence": "run_tests devolvió 1 passed, exit 0 en este turno"})[0]
 
 def test_stagnation_detector():
     s = kit.Stagnation()
@@ -188,13 +188,13 @@ def fake_ollama():
     s = ThreadingHTTPServer(("127.0.0.1", FAKE_PORT), Fake); threading.Thread(target=s.serve_forever, daemon=True).start()
     yield; s.shutdown()
 
-def run_turn(conv=None, mode="agent"):
+def run_turn(conv=None, mode="agent", resume=False):
     conv = conv or {"id": "f%d" % int(time.time() * 1000), "messages": [{"role": "user", "content": "haz algo"}], "title": "t", "created": 0, "updated": 0}
     ev = []; time.sleep(0.01)
-    out = srv.agent_turn(conv, ev.append, threading.Event(), mode, "m")
+    out = srv.agent_turn(conv, ev.append, threading.Event(), mode, "m", resume=resume)
     return out, conv, ev
 
-def call(name, **a): return {"tool_calls": [{"function": {"name": name, "arguments": a}}]}
+def call(_tool, **a): return {"tool_calls": [{"function": {"name": _tool, "arguments": a}}]}
 
 def test_recovery_empty_responses_then_ok(monkeypatch):
     monkeypatch.setattr(time, "sleep", lambda s: None)
@@ -246,3 +246,149 @@ def test_interrupted_runs_are_marked():
     c = {"id": "aaaaaa111111", "title": "x", "messages": [], "run": {"status": "running"}}
     srv.jsave(srv.conv_path(c["id"]), c); srv.mark_interrupted()
     assert srv.jload(srv.conv_path(c["id"]), {})["run"]["status"] == "interrupted"
+
+
+# ================================================================ REGRESIÓN: finalización prematura sin evidencia
+def fake_probe(status=200, ok=None, calls=None):
+    def f(url, method="GET", timeout=15, headers=None, contains=None, max_bytes=200000):
+        if calls is not None: calls.append(url)
+        good = status < 400 if ok is None else ok
+        return {"url": url, "status": status, "ok": good, "seconds": 0.1, "bytes": 10, "final_url": url, "snippet": "x", "error": None, "server": "t"}
+    return f
+
+def prior_conv(summary="Todo listo: public_url configurada y servicio terminado."):
+    return {"id": "a%011x" % int(time.time() * 1000), "title": "t", "created": 0, "updated": 0,
+            "run": {"tasks": [{"text": "Crear app", "status": "done", "evidence": "ya hecho en turno anterior"}]},
+            "messages": [{"role": "user", "content": "construye la app"}, {"role": "assistant", "content": summary, "stats": {}}]}
+
+def last_user(conv, text): conv["messages"].append({"role": "user", "content": text}); return conv
+
+def test_REGRESSION_premature_completion_config_only(monkeypatch):
+    """Caso real: pidió probar una URL de Idealista y publicar; el agente solo tocó `public_url` y declaró éxito."""
+    monkeypatch.setattr(kit, "http_probe", fake_probe())
+    conv = last_user(prior_conv(), "Construye la alternativa. Prueba esta URL https://www.idealista.com/inmueble/123/ y PUBLICA con una URL pública HTTPS")
+    claim = "Listo. La URL pública funciona: https://abc123-8000.proxy.runpod.net y el servicio está desplegado."
+    SCRIPT[:] = [call("write_file", path="settings.py", content="public_url = 'https://abc123-8000.proxy.runpod.net'"), {"content": claim}] + [{"content": claim}] * 8
+    out, conv, ev = run_turn(conv)
+    assert out == "incomplete", out                                              # ANTES: "done"
+    hidden = [m["content"] for m in conv["messages"] if m.get("hidden")]
+    assert any("NO puedes cerrar la tarea" in h for h in hidden)
+    assert any("idealista" in h.lower() for h in hidden)                            # el requisito de la URL objetivo se exige
+    final = conv["messages"][-1]["content"]
+    assert "Estado verificado por el controlador" in final and "SIN cumplir" in final and "INCOMPLETO" in final
+    assert "**Git**" in final and "**Aplicación" in final                           # Git y aplicación, por separado
+    assert not any(e["kind"] == "http" and e["ok"] for e in conv["run"]["ledger"])  # no había ninguna prueba HTTP
+
+def test_REGRESSION_same_scenario_passes_with_real_evidence(monkeypatch):
+    calls = []; monkeypatch.setattr(kit, "http_probe", fake_probe(200, calls=calls))
+    conv = last_user(prior_conv(), "Prueba esta URL https://www.idealista.com/inmueble/123/ y PUBLICA con una URL pública HTTPS")
+    SCRIPT[:] = [call("plan", action="set", tasks=["Arrancar servicio", "Probar URL objetivo", "Comprobar URL pública"]),
+                 call("write_file", path="app_ok.py", content="print('hi')"),
+                 call("proc_start", name="svc1", command="sleep 60"),
+                 call("http_check", url="https://www.idealista.com/inmueble/123/"),
+                 call("http_check", url="https://abc123-8000.proxy.runpod.net/"),
+                 call("plan", action="update", index=1, status="done", evidence="proc_start svc1 en marcha y comprobado con http_check"),
+                 call("plan", action="update", index=2, status="done", evidence="http_check a la URL de Idealista devolvió HTTP 200 (simulado)"),
+                 call("plan", action="update", index=3, status="done", evidence="http_check a la URL pública externa devolvió HTTP 200"),
+                 {"content": "Servicio activo. La URL pública https://abc123-8000.proxy.runpod.net/ responde (HTTP 200) y la URL de Idealista se probó (HTTP 200)."}]
+    out, conv, ev = run_turn(conv)
+    kit.proc_stop("svc1")
+    assert any(u.startswith("https://www.idealista.com") for u in calls)
+    assert out in ("done", "incomplete")
+    unmet = [r["text"] for r in conv["run"]["reqs"] if not r.get("done")]
+    assert not [u for u in unmet if "idealista" in u.lower() or "pública" in u.lower() or "Servicio" in u], unmet
+
+def test_REGRESSION_new_instruction_pruebalo_does_not_repeat_summary(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe())
+    summary = "Resumen anterior: la aplicación está terminada, hay endpoints /health y /extract y todo está configurado correctamente en el servidor local."
+    conv = last_user(prior_conv(summary), "pruébalo")
+    SCRIPT[:] = [{"content": summary}] * 8
+    out, conv, ev = run_turn(conv)
+    assert out == "incomplete"
+    hidden = " ".join(m["content"] for m in conv["messages"] if m.get("hidden"))
+    assert "repitiendo tu resumen" in hidden and "Requisito sin evidencia" in hidden
+    # y si de verdad lo prueba, se acepta
+    conv2 = last_user(prior_conv(summary), "pruébalo")
+    SCRIPT[:] = [call("plan", action="set", tasks=["Ejecutar prueba real"]), call("http_check", url="http://127.0.0.1:18998/health"),
+                 call("plan", action="update", index=1, status="done", evidence="http_check GET /health devolvió HTTP 200 en 0.1s"), {"content": "Probado: GET /health devolvió HTTP 200."}]
+    out2, conv2, _ = run_turn(conv2)
+    assert out2 == "done", out2
+
+def test_claims_need_evidence_and_local_is_not_public(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe())
+    ag, _ = mk_agent()
+    assert ag.claim_problems("La URL http://127.0.0.1:9000/ funciona perfectamente")                 # sin petición HTTP
+    assert ag.claim_problems("Todo desplegado y funcionando")                                      # sin servicio vivo
+    ag.exec("http_check", {"url": "http://127.0.0.1:9000/"})
+    assert not ag.claim_problems("La URL http://127.0.0.1:9000/ funciona perfectamente")             # con petición HTTP
+    assert ag.claim_problems("Esta es la URL pública: http://127.0.0.1:9000/ y funciona")            # localhost no es pública
+    assert ag.claim_problems("Todas las pruebas pasan") and ag.claim_problems("Subido a GitHub en la rama main")
+    ag.exec("http_check", {"url": "https://x.example.org/"})
+    assert not [p for p in ag.claim_problems("La URL pública https://x.example.org/ funciona") if "pública" in p]
+
+def test_http_evidence_before_last_change_is_stale(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe())
+    ag, _ = mk_agent(); ag.exec("http_check", {"url": "http://127.0.0.1:9001/"})
+    assert not ag.claim_problems("http://127.0.0.1:9001/ funciona")
+    ag.exec("write_file", {"path": "cambio.py", "content": "x=1"})
+    assert ag.claim_problems("http://127.0.0.1:9001/ funciona")        # el cambio invalida la evidencia anterior
+
+def test_plan_done_requires_real_evidence_by_task_type(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe())
+    ag, _ = mk_agent(); ag.exec("plan", {"action": "set", "tasks": ["Probar la URL /health con una petición HTTP", "Poner la URL pública del servicio"]})
+    ok, out = ag.exec("plan", {"action": "update", "index": 1, "status": "done", "evidence": "he modificado el campo public_url en settings.py"})
+    assert not ok and "HTTP" in out
+    ag.exec("http_check", {"url": "http://127.0.0.1:9002/health"})
+    assert ag.exec("plan", {"action": "update", "index": 1, "status": "done", "evidence": "http_check GET /health devolvió HTTP 200 en 0.1s"})[0]
+    ok, out = ag.exec("plan", {"action": "update", "index": 2, "status": "done", "evidence": "añadida la variable public_url en la configuración del servicio"})
+    assert not ok and "PÚBLICA" in out                                  # una variable de configuración no es una URL pública
+
+def test_blocked_site_is_reported_not_success(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe(403))
+    ag, _ = mk_agent(); ok, out = ag.exec("http_check", {"url": "https://www.idealista.com/x"})
+    assert not ok and "bloqueo" in out.lower() and "403" in out
+    ag2, _ = mk_agent(); ag2.add_requirements("Prueba esta URL https://www.idealista.com/x"); assert ag2.unmet()
+    ag2.exec("http_check", {"url": "https://www.idealista.com/x"}); ag, _ = ag2, 0
+    assert not ag.unmet()                                               # el intento real cumple «ejecutar contra la URL objetivo»...
+    assert ag.claim_problems("La URL https://www.idealista.com/x funciona")   # ...pero afirmar que funciona sigue rechazado (403)
+
+def test_long_user_requirements_survive_compaction():
+    conv = {"id": "lng1", "messages": [], "title": "t"}; ag, _ = mk_agent(conv)
+    big = "REQUISITO-INICIAL " + "x" * 5000 + " REQUISITO-FINAL-CRITICO"
+    m = conv["messages"]; m.append({"role": "user", "content": big})
+    for i in range(20):
+        m.append({"role": "assistant", "content": "", "tool_calls": [{"id": f"q{i}", "function": {"name": "bash", "arguments": {"command": "echo"}}}]})
+        m.append({"role": "tool", "tool_name": "bash", "tool_call_id": f"q{i}", "ok": True, "content": "ok"})
+    assert ag.compact(keep=6); assert "REQUISITO-FINAL-CRITICO" in json.dumps(ag.build_view("S", m))
+
+def test_resume_with_pending_requirements_is_not_closed_early(monkeypatch):
+    monkeypatch.setattr(kit, "http_probe", fake_probe())
+    conv = last_user(prior_conv(), "pruébalo y publícalo con URL pública HTTPS")
+    conv["run"]["reqs"] = [{"kind": "public", "key": "url", "text": "URL pública (no localhost) comprobada con http_check y estado 2xx/3xx", "since": 0}]
+    conv["messages"].append({"role": "user", "hidden": True, "content": "REANUDA la tarea"})
+    SCRIPT[:] = [{"content": "Todo terminado."}] * 8
+    out, conv, ev = run_turn(conv, resume=True)
+    assert out == "incomplete" and any("PENDIENTE" in m["content"] for m in conv["messages"] if m.get("hidden"))
+    assert "SIN cumplir" in conv["messages"][-1]["content"]
+
+def test_notify_and_compaction_do_not_end_the_loop():
+    ag, ev = mk_agent(); ok, _ = ag.exec("notify", {"message": "hola"})
+    assert ok and any(e["type"] == "notify" for e in ev)               # notify solo emite el aviso; el bucle lo decide el controlador
+
+
+# ================================================================ despliegue y rama main
+def test_deploy_check_and_config(monkeypatch):
+    assert srv.set_deploy({"pod_id": "abc123def", "app_port": 8081})["ok"]
+    assert srv.public_url()[0] == "https://abc123def-8081.proxy.runpod.net"
+    assert not srv.set_deploy({"pod_id": "NO VALIDO!"})["ok"] and not srv.set_deploy({"app_port": 99999})["ok"]
+    monkeypatch.setattr(kit, "http_probe", fake_probe(200))
+    d = srv.deploy_check(full=True); ids = {i["id"]: i for i in d["items"]}
+    assert {"ollama", "gpu", "token", "branch", "hook", "pod_id", "persist"} <= set(ids) and d["public_url"] and ids["public"]["ok"]
+    assert all("fix" in i for i in d["items"])
+
+def test_main_requires_explicit_confirmation_and_agent_push_policy():
+    assert not srv.set_config({"branch": "main"})["ok"]                       # sin confirmación no
+    assert srv.set_config({"branch": "main", "allow_main": True})["ok"] and srv.BRANCH == "main"
+    assert not srv.needs_approval("git_push", {}) and not srv.needs_approval("git_push", {"branch": "main"})   # rama configurada por el usuario
+    assert srv.needs_approval("git_push", {"branch": "master"})                                              # otra protegida: aprobación
+    srv.set_config({"branch": "work"}); assert srv.BRANCH == "work" and srv.needs_approval("git_push", {"branch": "main"})

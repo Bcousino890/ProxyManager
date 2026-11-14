@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Panel del Pod</title>
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <div class="app">
@@ -44,6 +44,14 @@
       <div class="muted small" id="ghMsg"></div>
     </section>
 
+    <section class="block">
+      <div class="h-row"><h4>Despliegue</h4><button class="link" id="depCheck">Comprobar</button></div>
+      <div class="muted small" id="depSummary">Pod/VPS nuevo: comprueba que todo está listo.</div>
+      <ul class="dep" id="depList"></ul>
+      <div class="dep-cfg"><input id="depPod" placeholder="POD_ID" autocomplete="off"><input id="depPort" placeholder="puerto" type="number" style="width:70px"><button class="btn" id="depSave">Guardar</button></div>
+      <a class="link small" id="depUrl" target="_blank" rel="noopener" hidden></a>
+    </section>
+
     <section class="block grow">
       <div class="h-row"><h4>Conversaciones</h4><button class="link" id="newConv">+ Nueva</button></div>
       <input class="convq" id="convq" placeholder="Buscar conversaciones…" autocomplete="off">
@@ -69,9 +77,9 @@
 
     <button class="jump" id="jump" hidden>↓ Ir al final</button>
     <div class="agentbar" id="agentbar" hidden>
-      <div class="ab-head" id="abHead" role="button" tabindex="0" title="Ver detalle"><span id="abPhase">—</span><span id="abTask" class="muted"></span><span class="grow"></span><span id="abTime" class="muted"></span><span class="muted">▾</span></div>
+      <div class="ab-head" id="abHead" role="button" tabindex="0" title="Ver detalle"><span id="abPhase">—</span><span id="abTask" class="muted"></span><span class="grow"></span><span id="abTime" class="muted"></span><button class="btn primary" id="abResume" hidden style="padding:3px 10px">↻ Reanudar</button><span class="muted">▾</span></div>
       <div class="ab-body" id="abBody" hidden><div class="ab-grid" id="abGrid"></div><ul class="ab-tasks" id="abTasks"></ul>
-      <div class="btns"><button class="btn" id="abResume" hidden>↻ Reanudar</button></div></div>
+      </div>
     </div>
     <footer class="composer-wrap">
       <div class="composer">
@@ -123,6 +131,6 @@
   </form>
 </dialog>
 <div class="toast" id="toast" hidden></div>
-<script src="app.js?v=6"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

@@ -10,7 +10,7 @@ Contiene lo que hace fiable al agente en sesiones largas:
   · compactación determinista del contexto
 Uso como script:  python3 agentkit.py --scan-staged   (hook pre-commit)
 """
-import hashlib, json, math, os, re, signal, subprocess, sys, tempfile, threading, time
+import difflib, hashlib, json, math, os, re, signal, subprocess, sys, tempfile, threading, time, urllib.error, urllib.parse, urllib.request
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,7 +19,7 @@ HOME = Path(os.environ.get("PANEL_HOME", Path.home() / ".pod-panel"))
 ENV = SimpleNamespace(repo=Path(os.environ.get("PANEL_REPO", "/ProxyManager")), workdir=None, branch=os.environ.get("PANEL_BRANCH", "pod-sync"),
                       token=lambda: "", extra_secrets=lambda: [], home=HOME)
 ENV.workdir = ENV.repo / "pod-work"
-MEMORY_FILES = ["TASK.md", "PLAN.md", "PROGRESS.md", "DECISIONS.md", "TEST_RESULTS.md", "BLOCKERS.md"]
+MEMORY_FILES = ["TASK.md", "PLAN.md", "PROGRESS.md", "DECISIONS.md", "TEST_RESULTS.md", "BLOCKERS.md", "ACCEPTANCE.md"]
 STATUS_ES = {"pending": "PENDIENTE", "running": "EJECUTANDO", "done": "COMPLETADO", "failed": "FALLIDO", "blocked": "BLOQUEADO"}
 PROTECTED = {"main", "master"}
 
@@ -298,12 +298,83 @@ SCHEMAS = [
        {"name": S("Nombre de la carpeta del proyecto"), "task": S("Descripción completa de la tarea y restricciones")}, ["name", "task"]),
     _t("memory_update", "Actualiza un archivo de memoria del proyecto (sobrevive a la compactación del contexto). Registra decisiones en DECISIONES.md, bloqueos en BLOCKERS.md, etc.",
        {"file": S("TASK.md|PLAN.md|PROGRESS.md|DECISIONS.md|TEST_RESULTS.md|BLOCKERS.md"), "content": S("Texto"), "mode": S("append (por defecto) | replace")}, ["file", "content"]),
+    _t("http_check", "Hace una petición HTTP REAL desde el pod y devuelve estado, tiempo y un fragmento de la respuesta. Es la ÚNICA forma válida de demostrar que una URL/servicio funciona (localhost o pública). Un 403/captcha (p. ej. DataDome) se informa tal cual.",
+       {"url": S("URL completa"), "method": S("GET (por defecto) o HEAD/POST"), "contains": S("Texto que debe aparecer en la respuesta (opcional)"), "timeout": I("Segundos (por defecto 15)")}, ["url"]),
     _t("notify", "Envía un aviso al usuario (notificación del navegador). Úsala cuando el usuario lo pida y al terminar una tarea larga.",
        {"title": S("Título"), "message": S("Mensaje")}, ["message"]),
 ]
 NEW_TOOLS = {s["function"]["name"] for s in SCHEMAS}
-READONLY = {"read_file", "list_dir", "search_files", "git_status", "git_diff", "inspect_logs", "proc_inspect", "plan", "web_search", "web_fetch", "describe_image"}
+READONLY = {"http_check", "read_file", "list_dir", "search_files", "git_status", "git_diff", "inspect_logs", "proc_inspect", "plan", "web_search", "web_fetch", "describe_image"}
 RO_CMD = re.compile(r"^\s*(ls|cat|head|tail|grep|rg|echo|pwd|which|wc|find|stat|df|du|ps|nvidia-smi|git\s+(status|diff|log|show|branch|remote)|pip\s+(list|show|freeze)|python3?\s+--version|docker\s+(ps|images|logs|inspect))\b")
+
+
+# ------------------------------------------------------------------ evidencia y criterios de aceptación
+URL_RX = re.compile(r"https?://[^\s)\]>\"'`,;]+")
+LOCAL_HOST = re.compile(r"^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[?::1\]?|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$")
+IGNORE_TARGET = re.compile(r"(^|\.)(github\.com|githubusercontent\.com|pypi\.org|python\.org|readthedocs\.io|docs\.|npmjs\.com|stackoverflow\.com|wikipedia\.org|runpod\.io)$")
+HTTP_CLIENT = re.compile(r"\b(curl|wget|httpx|requests\.(get|post|request)|urllib|aiohttp|http\.client|playwright|fetch\(|http_check)\b")
+SITE_HOSTS = {"idealista": "idealista.com", "fotocasa": "fotocasa.es", "habitaclia": "habitaclia.com", "amazon": "amazon.", "zalando": "zalando.", "crawio": "crawio.com"}
+VERIFY_RX = re.compile(r"\b(pru[eé]ba(lo|la|s)?|probar|pru[eé]balo|comprueba|comprobar|verifica|verificar|testea|test|run it|try it|check)\b", re.I)
+DEPLOY_RX = re.compile(r"\b(publica(r)?|despliega(r)?|desplegad[oa]|deploy|poner? en (producci[oó]n|marcha)|pon(lo|la)? en (l[ií]nea|marcha)|lev[aá]nta(lo|la)|arranca(lo|la)?)\b", re.I)
+PUBLIC_RX = re.compile(r"(url|enlace|link|direcci[oó]n)\s+(p[uú]blic[ao]|https(?!:)|accesible)|p[uú]blic[ao]\s+(url|https(?!:))|https(?!:)\s+accesible|accesible\s+desde\s+internet", re.I)
+GIT_RX = re.compile(r"\b(github|git\b|commit|push|rama|branch|main)\b", re.I)
+SCRAPE_RX = re.compile(r"\b(scrap\w*|extra[ec]\w*|crawl\w*|prueba\w*|probar|ejecuta\w*|run|test\w*|comprueba\w*|verifica\w*|descarga\w*|obt[eé]n\w*)\b", re.I)
+
+def url_host(u):
+    try: return (urllib.parse.urlparse(u).hostname or "").lower()
+    except Exception: return ""
+
+def is_local(host): return bool(LOCAL_HOST.match(host or ""))
+
+def extract_requirements(text):
+    """Criterios de aceptación verificables que se deducen de lo que pide el usuario (sin usar el modelo)."""
+    reqs, seen = [], set()
+    def add(kind, key, txt):
+        if (kind, key) not in seen: seen.add((kind, key)); reqs.append({"kind": kind, "key": key, "text": txt})
+    t = text or ""
+    urls = [u.rstrip(".") for u in URL_RX.findall(urllib.parse.unquote(t))]
+    wants_run = bool(SCRAPE_RX.search(t))
+    for u in urls:
+        h = url_host(u)
+        if h and not is_local(h) and not IGNORE_TARGET.search(h) and wants_run:
+            add("target", h, f"Ejecutar una petición real contra {u} (http_check o el propio servicio) y reportar el resultado REAL (estado, bloqueo, datos)")
+    for tok in re.findall(r"(?:url|enlace|link|p[aá]gina|sitio|web)\s+de\s+([A-Za-z0-9\-]{3,})", t, re.I):
+        k = SITE_HOSTS.get(tok.lower())
+        if k and wants_run: add("target", k, f"Ejecutar una petición/extracción real contra una URL de {tok} y reportar el resultado REAL")
+    if VERIFY_RX.search(t): add("verify", "run", "Ejecutar una prueba REAL ahora (run_tests o http_check/ejecución) y mostrar su salida")
+    dep = DEPLOY_RX.search(t)
+    if dep:
+        git_ctx = bool(re.search(r"\b(github|rama|branch|commit|push|main)\b", t, re.I))
+        if re.search(r"\b(despleg\w*|deploy|url|https|servicio|app|aplicaci[oó]n|producci[oó]n|panel)\b", t, re.I) or not git_ctx:
+            add("deploy", "service", "Servicio ejecutándose y comprobado con una petición HTTP real DESPUÉS del último cambio")
+        if git_ctx or dep.group(0).lower().startswith("publica"):
+            add("git", "push", "Commit + push verificado (hash remoto == local) DESPUÉS del último cambio")
+    if PUBLIC_RX.search(t): add("public", "url", "URL pública (no localhost) comprobada con http_check y estado 2xx/3xx")
+    return reqs
+
+CLAIM_URL = re.compile(r"(funciona\w*|responde\w*|accesible\w*|disponible\w*|operativ\w*|en l[ií]nea|live|working|up\b|activ[oa]|probad\w*|200)", re.I)
+CLAIM_DEPLOY = re.compile(r"(desplegad[oa]s?|deployed|en producci[oó]n|servicio (activo|corriendo|en marcha)|servidor (activo|corriendo|en marcha)|running|publicad[oa] en (producci[oó]n|la url))", re.I)
+CLAIM_PUBLIC = re.compile(r"(url|enlace|link|direcci[oó]n)\s+p[uú]blic[ao]|p[uú]blic[ao]mente|accesible desde (internet|fuera)|public url", re.I)
+CLAIM_TESTS = re.compile(r"(pruebas?|tests?)\s+(pasan|pasaron|aprobad\w+|ok|correct\w+|exitos\w+)|(todas las|all) (pruebas|tests)|tests? pass", re.I)
+CLAIM_GIT = re.compile(r"(push|subid[oa]|publicad[oa]|commit\w*).{0,60}(github|rama|main|remoto)|(github|rama|main).{0,60}(push|subid[oa]|publicad[oa])", re.I)
+
+def http_probe(url, method="GET", timeout=15, headers=None, contains=None, max_bytes=200_000):
+    """Petición HTTP real desde el pod. Devuelve dict(status, ok, seconds, bytes, final_url, snippet, error, server)."""
+    t0 = time.time(); out = {"url": url, "status": None, "ok": False, "seconds": 0, "bytes": 0, "final_url": url, "snippet": "", "error": None, "server": ""}
+    try:
+        req = urllib.request.Request(url, method=method, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) pod-agent-check/1.0", "Accept": "*/*", **(headers or {})})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                body = r.read(max_bytes); out.update(status=r.status, final_url=r.geturl(), server=r.headers.get("Server", ""))
+        except urllib.error.HTTPError as e:
+            body = e.read(max_bytes) if hasattr(e, "read") else b""; out.update(status=e.code, final_url=url, server=e.headers.get("Server", "") if e.headers else "")
+        txt = body.decode("utf-8", "replace"); out.update(bytes=len(body), snippet=redact(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", txt)).strip()[:300]))
+        out["ok"] = out["status"] is not None and out["status"] < 400 and (contains is None or contains in txt)
+        if contains is not None and contains not in txt: out["error"] = f"la respuesta no contiene {contains!r}"
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"[:200]
+    out["seconds"] = round(time.time() - t0, 2)
+    return out
 
 # ------------------------------------------------------------------ estancamiento
 class Stagnation:
@@ -369,6 +440,8 @@ class Agent:
         self.reserve = min(max(total * 0.15, 180), 900) if total < 10 ** 8 else 0
         self.phase = r.get("phase", "PLANIFICAR" if not self.tasks else "EJECUTAR"); self.last_tool = None
         self.final_notified = False; self.tps = []; self.ctx_tokens = 0; self.nudges = 0
+        self.ledger = list(r.get("ledger", [])); self.seq = max([e["seq"] for e in self.ledger] + [0]); self.reqs = list(r.get("reqs", []))
+        self.last_mut = r.get("last_mut", 0); self.need_plan = False; self.plan_set_turn = False; self._http = None
 
     # ---- estado / tiempo
     def elapsed(self): return time.time() - self.start
@@ -388,11 +461,13 @@ class Agent:
         return {"phase": self.phase, "task": self.current_task(), "tasks": self.tasks, "elapsed": int(self.elapsed()), "remaining": None if self.total > 10 ** 8 else int(self.remaining()),
                 "calls": self.n_calls, "valid": self.n_valid, "invalid": self.n_invalid, "errors": self.n_err, "files": sorted(self.files)[-12:], "n_files": len(self.files),
                 "last_test": self.last_test, "last_tool": self.last_tool, "ctx": self.ctx_tokens, "compactions": self.n_compact, "tps": round(sum(self.tps[-5:]) / len(self.tps[-5:]), 1) if self.tps else None,
-                "strikes": self.strag.strikes, "project": str(self.project) if self.project else None}
+                "strikes": self.strag.strikes, "project": str(self.project) if self.project else None,
+                "unmet": [r["text"] for r, _ in self.unmet()][:6], "reqs": len(self.reqs)}
 
     def state(self):
         return {"tasks": self.tasks, "project": str(self.project) if self.project else None, "phase": self.phase, "files": sorted(self.files), "last_test": self.last_test, "compactions": self.n_compact,
                 "counts": {"calls": self.n_calls, "valid": self.n_valid, "invalid": self.n_invalid, "errors": self.n_err, "tool_time": dict(self.tool_time), "tool_n": dict(self.tool_n)},
+                "ledger": self.ledger[-150:], "reqs": self.reqs, "last_mut": self.last_mut,
                 "elapsed_total": self.conv.get("run", {}).get("elapsed_total", 0) + int(self.elapsed())}
 
     def push_status(self): self.emit({"type": "status", **self.status()})
@@ -424,7 +499,7 @@ class Agent:
             p = d / f
             if not p.exists():
                 p.write_text({"TASK.md": f"# Tarea\n\n{task}\n", "PLAN.md": "# Plan\n\n(sin plan todavía)\n", "PROGRESS.md": f"# Progreso\n\n- {now_s()} proyecto creado\n",
-                              "DECISIONS.md": "# Decisiones\n\n", "TEST_RESULTS.md": "# Resultados de pruebas\n\n", "BLOCKERS.md": "# Bloqueos\n\n"}[f])
+                              "DECISIONS.md": "# Decisiones\n\n", "TEST_RESULTS.md": "# Resultados de pruebas\n\n", "BLOCKERS.md": "# Bloqueos\n\n", "ACCEPTANCE.md": "# Criterios de aceptación (verificados por el controlador)\n\n"}[f])
         self.project = d; self.phase = "PLANIFICAR"
         return d
 
@@ -443,10 +518,10 @@ class Agent:
         try: (self.project / "PLAN.md").write_text("\n".join(lines) + "\n")
         except OSError: pass
 
-    def memory_snapshot(self, n=2200):
+    def memory_snapshot(self, n=5000):
         if not self.project: return ""
         out = []
-        for f in ("TASK.md", "PLAN.md", "PROGRESS.md", "BLOCKERS.md"):
+        for f in ("TASK.md", "ACCEPTANCE.md", "PLAN.md", "PROGRESS.md", "BLOCKERS.md"):
             try:
                 t = (self.project / f).read_text()
                 out.append(f"--- {f} ---\n" + (t[:n] if f == "TASK.md" else t[-n:]))
@@ -467,6 +542,8 @@ class Agent:
         self.n_calls += 1; self.n_valid += 1; self.tool_time[name] += dt; self.tool_n[name] += 1
         if not ok: self.n_err += 1
         self.last_tool = {"name": name, "ok": ok, "seconds": round(dt, 2)}
+        try: self._ledger_from_call(name, args, ok, out)
+        except Exception: pass
         self._log_jsonl(name, args, ok, out, dt)
         return ok, out
 
@@ -642,13 +719,17 @@ class Agent:
             ts = [str(x).strip() for x in (a.get("tasks") or []) if str(x).strip()]
             if not ts: return False, "tasks vacío"
             self.tasks = [{"text": t, "status": "pending", "evidence": ""} for t in ts[:30]]
-            self.phase = "EJECUTAR"; self.write_plan_md(); self.log("PROGRESS.md", f"plan creado con {len(self.tasks)} tareas")
+            self.phase = "EJECUTAR"; self.plan_set_turn = True; self.need_plan = False
+            for t in self.tasks: t["since_seq"] = self.seq
+            self.write_plan_md(); self.log("PROGRESS.md", f"plan creado con {len(self.tasks)} tareas")
         elif act == "update":
             i = int(a.get("index") or 0); st = str(a.get("status", "")).lower(); ev = str(a.get("evidence", "")).strip()
             if not 1 <= i <= len(self.tasks): return False, f"index fuera de rango (1..{len(self.tasks)})"
             if st not in ("running", "done", "failed", "blocked", "pending"): return False, "status inválido"
             if st == "done":
-                if len(ev) < 10: return False, "COMPLETADO exige evidencia concreta (comando ejecutado, salida de pruebas, archivo creado)."
+                if len(ev) < 25: return False, "COMPLETADO exige evidencia concreta (comando ejecutado, salida/estado HTTP, resultado de pruebas, hash) de al menos una frase."
+                miss = self.task_evidence_missing(self.tasks[i - 1]["text"], self.tasks[i - 1].get("since_seq", 0))
+                if miss: return False, "No se puede marcar COMPLETADO: " + miss
                 if self.world_steps_since(i) == 0: return False, "No hay ninguna herramienta ejecutada con éxito desde que empezó esta tarea: no se puede marcar COMPLETADO sin evidencia real."
             self.tasks[i - 1].update(status=st, evidence=ev if ev else self.tasks[i - 1].get("evidence", ""))
             if st == "running": self.tasks[i - 1]["since"] = self.n_valid
@@ -657,9 +738,203 @@ class Agent:
         self.emit({"type": "plan", "tasks": self.tasks})
         return True, "\n".join(f"{i}. [{STATUS_ES[t['status']]}] {t['text']}" for i, t in enumerate(self.tasks, 1)) or "(sin plan)"
 
+    def task_evidence_missing(self, text, since):
+        """Evidencia que el tipo de tarea exige antes de poder darla por completada (None = suficiente)."""
+        t = text.lower()
+        if re.search(r"(ejecut|corr|pas|aprob|verific|valid)\w*.{0,25}(prueba|test)|run_tests|pytest", t) and not (self.after_last_change(("test",), True, since) or self.after_last_change(("http",), True, since)):
+            return "la tarea implica pruebas y no hay un run_tests (o http_check) exitoso posterior al último cambio."
+        if re.search(r"(prueb\w*|prob\w*|verific\w*|comprob\w*|valid\w*).{0,30}(http|url|endpoint|servicio|responde|health)|(http|url|endpoint).{0,30}(funciona|responde|accesible)", t) and not self.after_last_change(("http",), True, since):
+            return "la tarea implica una URL/endpoint y no hay ninguna petición HTTP exitosa (http_check) posterior al último cambio."
+        if re.search(r"url p[uú]blica|p[uú]blic\w* (la )?(url|app)|https p[uú]blic", t) and not self.after_last_change(("http",), True, since, local=False):
+            return "la tarea es una URL PÚBLICA y no hay una comprobación HTTP exitosa a un host no local (localhost no cuenta; una variable de configuración no cuenta)."
+        if re.search(r"despleg|deploy|levantar (el )?servicio|arrancar (el )?servicio|poner en (marcha|producci)", t) and not self.service_ok(since):
+            return "la tarea es un despliegue y no hay un servicio vivo comprobado con HTTP."
+        if re.search(r"(commit|push|publicar).{0,30}(github|rama|main)|verificar.{0,15}hash", t) and not self.after_last_change(("git_push",), True, since):
+            return "la tarea es publicar en GitHub y no hay un git_push con hash remoto verificado."
+        if re.search(r"scrap|extra[ec]\w* (de|desde)|idealista|crawl", t) and re.search(r"(ejecut|prob|real)", t) and not self.after_last_change(("http",), False, since):
+            return "la tarea es ejecutar scraping real y no hay ninguna petición ejecutada."
+        return None
+
     def world_steps_since(self, i):
         since = self.tasks[i - 1].get("since", 0)
         return self.n_valid - since - 1 if self.n_valid > since else 0
+
+
+    # ---- evidencia real (libro de pruebas) y criterios de aceptación
+    def _ev(self, kind, ok, **kw):
+        self.seq += 1
+        e = {"seq": self.seq, "kind": kind, "ok": bool(ok), "t": time.time(), **kw}
+        self.ledger.append(e); self.ledger = self.ledger[-300:]
+        if kind == "mutation": self.last_mut = self.seq
+        return e
+
+    def _ledger_from_call(self, name, args, ok, out):
+        if name in ("write_file", "edit_file") and ok:
+            p = str(args.get("path", ""))
+            if Path(p).name not in MEMORY_FILES and ".sessions" not in p: self._ev("mutation", True, path=p)
+        elif name == "run_tests":
+            self._ev("test", ok, detail=(self.last_test or {}).get("summary", ""))
+        elif name == "http_check" and self._http:
+            h = self._http; self._ev("http", h["ok"], url=h["url"], host=url_host(h["url"]), local=is_local(url_host(h["url"])), status=h["status"], error=h.get("error"))
+        elif name == "bash":
+            cmd = urllib.parse.unquote(str(args.get("command", "")))
+            if re.search(r"pytest|npm (run )?test|go test|cargo test", cmd) and not re.search(r"\b(pip3?|npm)\s+install\b", cmd) and self.last_test:
+                self._ev("test", self.last_test["ok"], detail=self.last_test["summary"])
+            if HTTP_CLIENT.search(cmd):
+                m = re.search(r"\b([1-5]\d\d)\b", out.split("[código")[0][-400:]) if ok else None
+                for u in list(dict.fromkeys(URL_RX.findall(cmd)))[:4]:
+                    self._ev("http", ok, url=u, host=url_host(u), local=is_local(url_host(u)), status=int(m.group(1)) if m and ok else None, via="bash")
+            if ok and re.search(r"docker( compose|-compose)?\s+(compose\s+)?(up|run)\b", cmd): self._ev("service", True, detail="docker up")
+            if ok and re.search(r"\bpkill|kill\b", cmd): pass
+        elif name == "proc_start":
+            time.sleep(0.1); nm = re.sub(r"[^\w.\-]", "_", str(args.get("name", "proc")))[:40]
+            self._ev("service", ok and proc_status(nm)["state"] == "en marcha", detail=f"proc {nm}")
+        elif name == "git_commit" and ok: self._ev("git_commit", True)
+        elif name == "git_push": self._ev("git_push", ok, detail=out[:120])
+
+    def t_http_check(self, a):
+        url = str(a.get("url", "")).strip()
+        if not re.match(r"https?://", url): return False, "url debe empezar por http:// o https://"
+        h = http_probe(url, str(a.get("method") or "GET").upper(), min(int(a.get("timeout") or 15), 60), contains=a.get("contains"))
+        self._http = h
+        local = is_local(url_host(url))
+        txt = (f"HTTP {h['status']} · {h['seconds']}s · {h['bytes']} bytes · servidor: {h['server'] or '?'}" if h["status"] is not None else f"SIN RESPUESTA: {h['error']}")
+        if h["final_url"] != url: txt += f"\nRedirigido a: {h['final_url']}"
+        txt += f"\nOrigen de la comprobación: {'LOCAL (localhost/red privada: NO demuestra una URL pública)' if local else 'URL externa/pública'}"
+        if h["error"] and h["status"] is not None: txt += f"\n{h['error']}"
+        if h["snippet"]: txt += "\nFragmento: " + h["snippet"]
+        if h["status"] in (401, 403, 429, 503): txt += "\n[Posible bloqueo/antibot: infórmalo tal cual; no lo presentes como éxito]"
+        return h["ok"], txt
+
+    def after_last_change(self, kinds, ok=True, since=0, local=None, host=None):
+        lim = max(self.last_mut, since)
+        for e in reversed(self.ledger):
+            if e["seq"] <= lim: break
+            if e["kind"] in kinds and (e["ok"] or not ok) and (local is None or e.get("local") == local) and (host is None or host in (e.get("host") or "")):
+                return e
+        return None
+
+    def service_ok(self, since=0):
+        if self.after_last_change(("http",), True, since, local=True) or self.after_last_change(("http",), True, since, local=False): return True
+        e = self.after_last_change(("service",), True, since)
+        if e and any(m["state"] == "en marcha" for m in proc_list()): return True
+        return bool(e and e.get("detail") == "docker up")
+
+    def unmet(self):
+        """[(requisito, acción concreta)] de los criterios todavía sin evidencia."""
+        out = []
+        for r in self.reqs:
+            if r.get("done"): continue
+            since, k = r.get("since", 0), r["kind"]
+            if k == "target":
+                e = next((x for x in self.ledger if x["seq"] > since and x["kind"] == "http" and r["key"] in (x.get("host") or "")), None)
+                if not e: out.append((r, f"ejecuta http_check sobre la URL objetivo ({r['key']}) o llama a tu servicio con esa URL y muestra el resultado real"))
+            elif k == "verify":
+                has_target = any(x["kind"] == "target" for x in self.reqs)
+                blocked_attempt = has_target and any(e["seq"] > max(since, self.last_mut) and e["kind"] == "http" and e.get("status") for e in self.ledger)   # 403/captcha reportado = intento real
+                if not (self.after_last_change(("test",), True, since) or self.after_last_change(("http",), True, since) or blocked_attempt):
+                    out.append((r, "ejecuta run_tests y/o http_check AHORA (la evidencia anterior no vale: es previa a tu último cambio o a esta petición)"))
+            elif k == "deploy":
+                if not self.service_ok(since): out.append((r, "arranca el servicio con proc_start y compruébalo con http_check (la URL debe responder 2xx/3xx)"))
+            elif k == "public":
+                if not self.after_last_change(("http",), True, since, local=False): out.append((r, "comprueba con http_check la URL PÚBLICA (https://<POD_ID>-<puerto>.proxy.runpod.net o la que corresponda); localhost no cuenta"))
+            elif k == "git":
+                if not self.after_last_change(("git_push",), True, since): out.append((r, "git_commit y git_push a la rama (verifica el hash remoto)"))
+        return out
+
+    def add_requirements(self, text):
+        new = []
+        have = {(r["kind"], r["key"]) for r in self.reqs if not r.get("done")}
+        for r in extract_requirements(text):
+            if (r["kind"], r["key"]) not in have:
+                r.update(since=self.seq, added=now_s()); self.reqs.append(r); new.append(r)
+        self.reqs = self.reqs[-30:]
+        return new
+
+    def settle(self):
+        """Marca como cumplidos los criterios con evidencia (se llama antes de evaluar)."""
+        pend = {id(r) for r, _ in self.unmet()}
+        for r in self.reqs:
+            if id(r) not in pend and not r.get("done"): r["done"] = True
+        return self.reqs
+
+    def claim_problems(self, content):
+        """Cosas que el modelo AFIRMA en su respuesta final sin que haya prueba ejecutada."""
+        out = []; txt = content or ""
+        if not txt.strip(): return out
+        for m in URL_RX.finditer(txt):
+            u = m.group(0).rstrip(".,"); h = url_host(u)
+            ctx = txt[max(0, m.start() - 140): m.end() + 140]
+            if not (CLAIM_URL.search(ctx) or CLAIM_PUBLIC.search(ctx)) or IGNORE_TARGET.search(h): continue
+            if not self.after_last_change(("http",), True, 0, host=h):
+                out.append(f"Afirmas que {u} funciona/responde pero NO hay ninguna petición HTTP exitosa ejecutada contra ese host después de tu último cambio. Usa http_check({u}).")
+            if CLAIM_PUBLIC.search(ctx) and is_local(h):
+                out.append(f"Llamas «URL pública» a {u}, que es local (localhost/red privada). Una URL pública exige un host accesible desde internet y comprobado con http_check; añadir una variable `public_url` NO basta.")
+        if CLAIM_PUBLIC.search(txt) and not self.after_last_change(("http",), True, 0, local=False):
+            out.append("Declaras una URL pública pero no existe ninguna comprobación HTTP exitosa a un host NO local. Comprueba la URL pública real con http_check o di claramente que NO está publicada.")
+        if CLAIM_DEPLOY.search(txt) and not self.service_ok():
+            out.append("Declaras la aplicación desplegada/en marcha pero no hay evidencia de servicio vivo (proc_start + http_check exitoso después del último cambio).")
+        if CLAIM_TESTS.search(txt) and not self.after_last_change(("test",), True, 0):
+            out.append("Declaras que las pruebas pasan pero no hay un run_tests exitoso posterior a tu último cambio.")
+        if CLAIM_GIT.search(txt) and not self.after_last_change(("git_push",), True, 0) and not re.search(r"(no (se )?(ha|he)? ?(publicad|subid)|sin publicar|pendiente de publicar)", txt, re.I):
+            out.append("Declaras publicación en GitHub pero no hay git_push con hash remoto verificado después del último cambio.")
+        return out
+
+    def completion_problems(self, content, prev_final=None):
+        """Motivos por los que NO se puede cerrar la tarea ahora (lista vacía = se puede cerrar)."""
+        self.settle(); out = []
+        if self.need_plan and not self.plan_set_turn and self.unmet():
+            out.append("Hay una instrucción nueva y no has creado un plan nuevo. Haz plan(action='set') con tareas que cubran lo pedido (y ejecútalas).")
+        for r, hint in self.unmet(): out.append(f"Requisito sin evidencia: «{r['text']}» → {hint}.")
+        out += self.claim_problems(content)
+        if prev_final and content and len(content) > 80 and difflib.SequenceMatcher(None, prev_final[:700], content[:700]).ratio() > 0.85 and (self.unmet() or self.need_plan):
+            out.append("Estás repitiendo tu resumen anterior en vez de ejecutar lo que el usuario acaba de pedir. Usa herramientas.")
+        return out
+
+    def on_user_message(self, text):
+        """Cada instrucción nueva crea criterios nuevos y obliga a un plan nuevo si el anterior estaba completo."""
+        new = self.add_requirements(text)
+        if self.tasks and all(t["status"] in ("done", "failed", "blocked") for t in self.tasks):
+            self.log("PROGRESS.md", f"plan anterior archivado ({len(self.tasks)} tareas); nueva instrucción recibida"); self.tasks = []
+        self.need_plan = bool(new) or self.need_plan
+        self.plan_set_turn = False
+        if self.project:
+            try:
+                with open(self.project / "TASK.md", "a") as f: f.write(f"\n\n## Instrucción del usuario ({now_s()})\n\n{redact(text)[:8000]}\n")
+            except OSError: pass
+        self.write_acceptance()
+        return new
+
+    def write_acceptance(self):
+        if not self.project: return
+        unmet = {id(r) for r, _ in self.unmet()}
+        lines = ["# Criterios de aceptación (verificados por el controlador con evidencia real)", ""]
+        for r in self.reqs: lines.append(f"- [{'x' if r.get('done') or id(r) not in unmet else ' '}] ({r['kind']}) {r['text']}")
+        try: (self.project / "ACCEPTANCE.md").write_text("\n".join(lines) + "\n")
+        except OSError: pass
+
+    def verified_report(self):
+        """Estado REAL, separado: GIT vs APLICACIÓN vs PRUEBAS vs REQUISITOS. Lo calcula el controlador, no el modelo."""
+        L = ["**Estado verificado por el controlador** (comprobaciones reales, no el resumen del modelo)"]
+        _, br = git("rev-parse", "--abbrev-ref", "HEAD"); _, head = git("rev-parse", "HEAD"); head = head.strip()
+        rh, err = remote_hash(ENV.branch); _, dirty = git("status", "--porcelain")
+        n_dirty = len([l for l in dirty.splitlines() if l.strip()])
+        L.append(f"- **Git**: rama local `{br.strip()}` @{head[:8]} · rama de publicación `{ENV.branch}` en GitHub: " + (f"@{rh[:8]} ({'COINCIDE' if rh == head else 'DIFIERE del commit local'})" if rh else "no existe/no consultable") + f" · {n_dirty} archivos sin commitear")
+        procs = proc_list()
+        L.append("- **Aplicación (procesos)**: " + ("; ".join(f"{p['name']}: {p['state']}" for p in procs) if procs else "ninguno gestionado por el panel"))
+        https = [e for e in self.ledger if e["kind"] == "http"][-4:]
+        if https:
+            for e in https:
+                live = http_probe(e["url"], timeout=6) if e["seq"] > self.last_mut else None
+                L.append(f"- **HTTP** {e['url']}: {'OK' if e['ok'] else 'FALLÓ'}" + (f" (estado {e.get('status')})" if e.get("status") else "") + (" · local" if e.get("local") else " · externa") +
+                         (f" · ahora: {live['status'] if live['status'] is not None else live['error']}" if live else " · evidencia anterior al último cambio"))
+        else: L.append("- **HTTP**: ninguna petición ejecutada")
+        L.append("- **Pruebas**: " + (f"{'OK' if self.last_test['ok'] else 'FALLARON'} — {self.last_test['summary']}" if self.last_test else "no ejecutadas"))
+        self.settle(); un = self.unmet()
+        if un: L.append("- **⚠ Requisitos SIN cumplir**: " + "; ".join(r["text"] for r, _ in un))
+        elif self.reqs: L.append("- Requisitos del usuario: todos con evidencia")
+        self.write_acceptance()
+        return "\n".join(L)
 
     # ---- contexto
     def estimate_tokens(self, msgs):
@@ -674,7 +949,7 @@ class Agent:
         if cut <= c["upto"]: return False
         digest = []
         for m in msgs[c["upto"]:cut]:
-            if m["role"] == "user" and not m.get("hidden"): digest.append("USUARIO: " + clip(m.get("display") or m.get("content", ""), 3500))
+            if m["role"] == "user" and not m.get("hidden"): digest.append("USUARIO: " + clip(m.get("display") or m.get("content", ""), 12000 if not digest else 6000))
             elif m["role"] == "user": digest.append("(aviso del controlador) " + clip(m.get("content", ""), 200))
             elif m["role"] == "assistant":
                 for tc in m.get("tool_calls") or []:
@@ -686,8 +961,8 @@ class Agent:
                 m_c = re.search(r"\[código de salida (-?\d+)\]", m.get("content", ""))
                 digest.append(f"   ← {'OK' if m.get('ok', True) else 'FALLÓ'}{' exit ' + m_c.group(1) if m_c else ''}: {clip(first, 140)}")
         merged = (c["summary"] + "\n" if c["summary"] else "") + "\n".join(digest)
-        if len(merged) > 9000:   # conserva el principio (tarea original) y lo más reciente
-            merged = merged[:3000] + "\n…[historial antiguo omitido]…\n" + merged[-5800:]
+        if len(merged) > 24000:   # conserva el principio (tarea original) y lo más reciente
+            merged = merged[:12500] + "\n…[historial antiguo omitido]…\n" + merged[-11000:]
         c["summary"], c["upto"] = merged, cut
         self.n_compact += 1
         self.log("PROGRESS.md", f"contexto compactado ({cut} mensajes resumidos)")

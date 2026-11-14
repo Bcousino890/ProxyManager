@@ -157,6 +157,7 @@ function setBusy(b) { S.busy = b; $('#send').hidden = b; $('#stop').hidden = !b;
 async function send(text, opts = {}) {
   text = (text ?? $('#input').value).trim();
   const atts = text.startsWith('!') || opts.attach ? [] : S.files.filter(f => f.state === 'ok');
+  if (!text && !atts.length && !opts.resume && !opts.attach && ['interrupted', 'blocked', 'incomplete', 'budget', 'stopped'].includes(S.status) && S.id) opts = {...opts, resume: true};
   if ((!text && !atts.length && !opts.resume && !opts.attach) || S.busy) return;
   if (S.files.some(f => f.state === 'up')) { toast('Espera a que terminen de subir los archivos'); return; }
   if (!S.id) { const c = await api('/conversations', {}); S.id = c.id; }
@@ -182,9 +183,10 @@ async function send(text, opts = {}) {
           case 'thinking': { if (!think) { const d = el('details', 'think', '<summary>💭 Razonando…</summary>'); d.open = true; think = el('div', 'tt'); d.append(think); parent.insertBefore(d, typing.isConnected ? typing : null); }
             think.textContent += ev.text; think.scrollTop = think.scrollHeight; break; }
           case 'user': if (!ev.replay_skip) userMsg(ev.text, (ev.atts || []).map(x => ({...x, url: null}))); break;
-          case 'status': paintAgent(ev); break;
+          case 'status': S.lastSt = ev; paintAgent(ev, 'running'); break;
           case 'plan': break;
-          case 'outcome': if (ev.outcome !== 'done') toast({blocked: '⛔ Tarea BLOQUEADA', budget: '⏱ Presupuesto agotado', incomplete: '⚠ Tarea incompleta', error: '✖ Error', stopped: '■ Detenida'}[ev.outcome] || ev.outcome); break;
+          case 'verified': { const v = el('div', 'notice', ''); v.style.whiteSpace = 'pre-wrap'; v.style.textAlign = 'left'; v.textContent = ev.text.replace(/\*\*/g, '').replace(/`/g, ''); thread.append(v); break; }
+          case 'outcome': S.status = ev.outcome; if (S.lastSt) paintAgent(S.lastSt, ev.outcome); if (ev.outcome !== 'done') toast({blocked: '⛔ Tarea BLOQUEADA', budget: '⏱ Presupuesto agotado', incomplete: '⚠ Tarea incompleta', error: '✖ Error', stopped: '■ Detenida'}[ev.outcome] || ev.outcome); break;
           case 'notify': alertUser(ev.title, ev.text); break;
           case 'token': if (!live) { live = el('div', 'text'); parent.append(live); } raw += ev.text; live.textContent = raw; break;
           case 'clear_text': raw = ''; live?.remove(); live = null; break;
@@ -202,13 +204,14 @@ async function send(text, opts = {}) {
     }
   } catch (e) { thread.append(el('div', 'notice err', 'Conexión perdida: ' + esc(e.message))); }
   typing.remove(); flush(); document.querySelectorAll('.msg.bot:empty').forEach(m => m.remove());
-  setBusy(false); loadStatus(); loadConvs();
+  setBusy(false); if (S.lastSt) paintAgent(S.lastSt, S.status); loadStatus(); loadConvs();
   if (Date.now() - t0 > 8000 || document.hidden) alertUser('Tarea terminada', lastText.replace(/[#*`]/g, '').trim().split('\n')[0]);
 }
 
 // ---------- barra de estado del agente
 const fmtM = s => s == null ? '∞' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 function paintAgent(s, status) {
+  S.status = status || S.status;
   const bar = $('#agentbar'); if (!s || !s.phase) { bar.hidden = true; return; }
   bar.hidden = false;
   $('#abPhase').textContent = (status && status !== 'running' ? ({done: '✔ terminado', blocked: '⛔ BLOQUEADO', budget: '⏱ presupuesto agotado', incomplete: '⚠ incompleto', interrupted: '↻ interrumpido', error: '✖ error', stopped: '■ detenido'})[status] + ' · ' : '') + (s.phase || '');
@@ -216,13 +219,13 @@ function paintAgent(s, status) {
   const el_ = s.elapsed ?? s.elapsed_total; $('#abTime').textContent = `transcurrido ${fmtM(el_)}` + (s.remaining != null ? ` · restan ${fmtM(s.remaining)}` : '');
   const c = s.counts || {calls: s.calls, valid: s.valid, invalid: s.invalid, errors: s.errors}, n = c.calls || 0;
   const items = [['Llamadas', n], ['Válidas', n ? Math.round((n - (c.invalid || 0)) / n * 100) + ' %' : '—'], ['Errores', c.errors || 0], ['Archivos', s.n_files ?? (s.files || []).length],
-    ['Pruebas', s.last_test ? (s.last_test.ok ? '✔ ' : '✖ ') + s.last_test.summary : '—'], ['Contexto', s.ctx ? Math.round(s.ctx / 327.68) + ' % (compact. ' + (s.compactions || 0) + ')' : '—'], ['Tokens/s', s.tps || '—'], ['Estancamiento', (s.strikes || 0) + '/4']];
+    ['Pruebas', s.last_test ? (s.last_test.ok ? '✔ ' : '✖ ') + s.last_test.summary : '—'], ['Contexto', s.ctx ? Math.round(s.ctx / 327.68) + ' % (compact. ' + (s.compactions || 0) + ')' : '—'], ['Tokens/s', s.tps || '—'], ['Estancamiento', (s.strikes || 0) + '/4'], ['Sin evidencia', (s.unmet || []).length ? (s.unmet || []).length + ' req.' : '—']];
   $('#abGrid').innerHTML = items.map(([k, v]) => `<div><span class="muted">${k}</span> <b>${esc(v)}</b></div>`).join('');
   const L = {pending: 'PENDIENTE', running: 'EJECUTANDO', done: 'COMPLETADO', failed: 'FALLIDO', blocked: 'BLOQUEADO'};
   $('#abTasks').innerHTML = (s.tasks || []).map((t, i) => `<li class="st-${L[t.status]}">${i + 1}. [${L[t.status]}] ${esc(t.text)}${t.evidence ? ` <span class="muted">— ${esc(t.evidence.slice(0, 80))}</span>` : ''}</li>`).join('');
   $('#abResume').hidden = !(['interrupted', 'blocked', 'incomplete', 'budget', 'stopped'].includes(status) && !S.busy);
 }
-$('#abResume').onclick = () => send('', {resume: true});
+$('#abResume').onclick = e => { e.stopPropagation(); send('', {resume: true}); };
 $('#abHead').onclick = () => { $('#abBody').hidden = !$('#abBody').hidden; };
 
 // ---------- estado y conversaciones
@@ -289,6 +292,20 @@ paintMode(); empty(); loadStatus(); loadConvs(); setInterval(loadStatus, 8000);
 
 // ---------- configuración de GitHub
 $('#btnGhCfg').onclick = async () => { const s = await api('/status'), g = s.git; $('#cfgRepo').value = g.repo; $('#cfgBranch').value = g.target_branch; $('#cfgDir').value = g.workdir; $('#cfgStrat').value = g.strategy; $('#cfgMsg').textContent = ''; $('#ghDlg').showModal(); };
-$('#cfgSave').onclick = async () => { const r = await api('/config', {repo: $('#cfgRepo').value, branch: $('#cfgBranch').value, workdir: $('#cfgDir').value, strategy: $('#cfgStrat').value}); $('#cfgMsg').textContent = r.ok ? 'Guardado.' : r.msg; if (r.ok) loadStatus(); };
+$('#cfgSave').onclick = async () => { const br = $('#cfgBranch').value.trim(), am = ['main', 'master'].includes(br); if (am && !confirm(`Vas a guardar el trabajo del agente DIRECTAMENTE en «${br}». ¿Confirmas?`)) return;
+  const r = await api('/config', {repo: $('#cfgRepo').value, branch: br, allow_main: am, workdir: $('#cfgDir').value, strategy: $('#cfgStrat').value}); $('#cfgMsg').textContent = r.ok ? 'Guardado.' : r.msg; if (r.ok) loadStatus(); };
 $('#cfgVerify').onclick = async () => { const r = await api('/git/verify'); $('#cfgMsg').textContent = r.remote == null ? 'No pude consultar GitHub: ' + r.msg : r.remote === '' ? `La rama ${r.branch} aún no existe en GitHub (local ${r.local.slice(0, 10)})` : `local ${r.local.slice(0, 10)} · remoto ${r.remote.slice(0, 10)} → ${r.match ? '✔ coinciden' : '✖ DIFIEREN'}`; };
 $('#cfgIntegrate').onclick = async () => { const t = prompt('Rama de destino (debe existir en GitHub, p. ej. main). Solo avance rápido, sin force:', 'main'); if (!t) return; if (!confirm(`¿Integrar la rama de trabajo en «${t}»?`)) return; const r = await api('/git/integrate', {target: t}); $('#cfgMsg').textContent = r.msg; };
+
+// ---------- despliegue
+async function depCheck(full) {
+  $('#depSummary').textContent = 'Comprobando…';
+  const r = await api('/deploy/check' + (full ? '?full=1' : ''));
+  $('#depSummary').textContent = r.ready ? '✔ Listo para trabajar' : '✖ Faltan cosas (ver abajo)';
+  $('#depList').innerHTML = r.items.map(i => `<li class="${i.ok ? 'ok' : 'bad'}" title="${esc(i.fix || '')}">${i.ok ? '✔' : '✖'} ${esc(i.label)}${i.detail ? ` <span class="muted">· ${esc(i.detail)}</span>` : ''}${!i.ok && i.fix ? `<div class="muted">→ ${esc(i.fix)}</div>` : ''}</li>`).join('');
+  if (r.pod_id && !$('#depPod').value) $('#depPod').value = r.pod_id; if (r.app_port && !$('#depPort').value) $('#depPort').value = r.app_port;
+  const u = $('#depUrl'); u.hidden = !r.public_url; if (r.public_url) { u.href = r.public_url; u.textContent = r.public_url; }
+}
+$('#depCheck').onclick = () => depCheck(true);
+$('#depSave').onclick = async () => { const r = await api('/deploy/config', {pod_id: $('#depPod').value, app_port: $('#depPort').value}); toast(r.ok ? 'Guardado' : r.msg); depCheck(false); };
+depCheck(false);
