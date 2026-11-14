@@ -153,10 +153,17 @@ $('#input').addEventListener('paste', e => { const fs = [...(e.clipboardData?.fi
 document.addEventListener('drop', e => { if (e.dataTransfer?.files?.length) { e.preventDefault(); addFiles([...e.dataTransfer.files]); } });
 
 // ---------- envío y streaming
-function setBusy(b) { S.busy = b; $('#send').hidden = b; $('#stop').hidden = !b; $('#input').disabled = b; if (!b) $('#input').focus(); }
+function setBusy(b) { S.busy = b; $('#send').hidden = false; $('#send').textContent = b ? 'Enviar comentario' : 'Enviar'; $('#stop').hidden = !b; $('#input').disabled = false;
+  $('#input').placeholder = b ? 'Escribe un comentario o consejo para el agente: lo leerá en su siguiente paso (no hace falta detenerlo)…' : ({chat: 'MODO CHAT: el modelo solo conversa, NO ejecuta nada. Cambia a Agente para que actúe.', research: 'Describe qué investigar…', agent: 'Dile al agente qué hacer…  ·  !comando se ejecuta en el pod  ·  /leer URL'})[S.mode]; if (!b) $('#input').focus(); }
+async function steer(text) {
+  const r = await api('/steer', {id: S.id, message: text});
+  if (r.ok) { $('#input').value = ''; autosize(); toast('✔ Comentario enviado: el agente lo leerá en su siguiente paso'); }
+  else toast(r.msg || 'No se pudo enviar');
+}
 async function send(text, opts = {}) {
   text = (text ?? $('#input').value).trim();
   const atts = text.startsWith('!') || opts.attach ? [] : S.files.filter(f => f.state === 'ok');
+  if (S.busy && text && !opts.attach && !opts.resume && !text.startsWith('!')) return steer(text);
   if (!text && !atts.length && !opts.resume && !opts.attach && ['interrupted', 'blocked', 'incomplete', 'budget', 'stopped', 'error'].includes(S.status) && S.id) opts = {...opts, resume: true};
   if ((!text && !atts.length && !opts.resume && !opts.attach) || S.busy) return;
   if (S.files.some(f => f.state === 'up')) { toast('Espera a que terminen de subir los archivos'); return; }

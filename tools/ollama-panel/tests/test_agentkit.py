@@ -406,3 +406,27 @@ def test_recovery_ollama_tool_parse_500_is_not_fatal(monkeypatch):
     assert any(m["role"] == "tool" and "trozo1" in m["content"] for m in conv["messages"])
     SCRIPT[:] = ["parse500"] * 12
     out, conv, ev = run_turn(); assert out == "blocked" and any("4 veces" in e.get("text", "") for e in ev)
+
+
+def test_user_can_steer_the_agent_while_it_runs(monkeypatch):
+    """Comentarios del usuario durante la tarea: se leen en el siguiente paso y también si llegan justo al terminar."""
+    seen = []
+    orig = srv.stream_ollama
+    def spy(view, *a, **k):
+        seen.append(json.dumps(view, ensure_ascii=False)); return orig(view, *a, **k)
+    monkeypatch.setattr(srv, "stream_ollama", spy)
+    conv = {"id": "b%011x" % int(time.time() * 1000), "title": "t", "created": 0, "updated": 0, "messages": [{"role": "user", "content": "haz algo"}]}
+    q = ["usa httpx en vez de requests"]; ev = []
+    SCRIPT[:] = [call("bash", command="echo paso1"), {"content": "hecho"}, call("bash", command="echo paso2_tras_consejo"), {"content": "listo ya"}]
+    real_call = srv.call_model; n = {"i": 0}
+    def wrapped(*a, **k):
+        n["i"] += 1
+        if n["i"] == 2: q.append("ahora añade tests")      # llega justo cuando el modelo va a cerrar
+        return real_call(*a, **k)
+    monkeypatch.setattr(srv, "call_model", wrapped)
+    out = srv.agent_turn(conv, ev.append, threading.Event(), "agent", "m", steer=q)
+    users = [m for m in conv["messages"] if m.get("steer")]
+    assert [m["display"] for m in users] == ["usa httpx en vez de requests", "ahora añade tests"]
+    assert any("usa httpx en vez de requests" in v for v in seen[:1])                 # el modelo lo ve en la primera llamada
+    assert any(m["role"] == "tool" and "paso2_tras_consejo" in m["content"] for m in conv["messages"])   # y siguió trabajando tras el 2º comentario
+    assert sum(1 for e in ev if e["type"] == "user" and e.get("steer")) == 2 and not q

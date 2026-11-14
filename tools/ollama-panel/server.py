@@ -532,7 +532,7 @@ def call_model(ag, view_fn, emit, stop, model, tools, think):
         return content, calls, stats
     return "", [], {}
 
-def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_min=None, resume=False):
+def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_min=None, resume=False, steer=None):
     """Controlador: PLANIFICAR → EJECUTAR → OBSERVAR → EVALUAR → CORREGIR → VERIFICAR → CONTINUAR. Devuelve el resultado:
     done | stopped | blocked | budget | error | incomplete."""
     model = THINK_MODEL if think else (model or MODEL)
@@ -567,8 +567,21 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
         conv["updated"] = time.time(); jsave(conv_path(conv["id"]), conv)
     def hidden_user(text):
         msgs.append({"role": "user", "hidden": True, "content": text})
+    steer = steer if steer is not None else []
+    def drain():
+        n = 0
+        while steer:
+            t = steer.pop(0)
+            msgs.append({"role": "user", "content": "[COMENTARIO DEL USUARIO MIENTRAS TRABAJAS — tenlo en cuenta desde ya; ajusta el plan si hace falta y sigue con herramientas]\n" + t, "display": t, "steer": True})
+            emit({"type": "user", "text": t, "steer": True})
+            if mode == "agent":
+                ag.on_user_message(t)
+            ag.strag.strikes = 0; st["gate"] = 0; st["pend"] = 0; n += 1
+        if n: save()
+        return n
     ag.push_status(); save()
     for step in range(max_steps):
+        drain()
         if stop.is_set():
             emit({"type": "notice", "text": "Detenido por el usuario."}); outcome = "stopped"; break
         if mode != "chat" and ag.remaining() <= 0:
@@ -658,6 +671,8 @@ def agent_turn(conv, emit, stop, mode="agent", model=None, think=False, budget_m
         msgs.append(a)
         emit({"type": "assistant_done", "stats": a["stats"]})
         if not calls:
+            if steer:      # llegó un comentario del usuario justo al terminar: se atiende antes de cerrar
+                continue
             outcome = "done"; break
         reasons = []
         for c in a["tool_calls"]:
@@ -763,6 +778,7 @@ class Run:
     """Una tarea del agente: corre en su propio hilo, independiente del navegador; los eventos quedan en memoria para reenganchar."""
     def __init__(self, cid):
         self.cid, self.events, self.cond, self.status, self.stop, self.base, self.t0 = cid, [], threading.Condition(), "running", threading.Event(), 0, time.time()
+        self.steer = []   # comentarios del usuario mientras la tarea corre
     def emit(self, ev):
         with self.cond:
             self.events.append(ev); self.cond.notify_all()
@@ -811,7 +827,7 @@ def run_worker(run, conv, b):
         jsave(conv_path(conv["id"]), conv)
         if run_model:
             bm = b.get("budget_min")
-            outcome = agent_turn(conv, emit, stop, mode, b.get("model") or MODEL, bool(b.get("think")), float(bm) if bm else None, resume=bool(b.get("resume")))
+            outcome = agent_turn(conv, emit, stop, mode, b.get("model") or MODEL, bool(b.get("think")), float(bm) if bm else None, resume=bool(b.get("resume")), steer=run.steer)
         else:
             outcome = "done"
         conv["updated"] = time.time()
@@ -1011,6 +1027,11 @@ class H(BaseHTTPRequestHandler):
                 ev = STOPS.get(b.get("id"))
                 if ev: ev.set()
                 return self._json({"ok": True})
+            if path == "/api/steer":
+                r = RUNS.get(b.get("id")); t = (b.get("message") or "").strip()
+                if not t: return self._json({"ok": False, "msg": "mensaje vacío"}, 400)
+                if not (r and r.status == "running"): return self._json({"ok": False, "msg": "no hay una tarea en curso: envíalo como mensaje normal"})
+                r.steer.append(t[:8000]); return self._json({"ok": True, "queued": len(r.steer)})
             if path == "/api/resume":
                 return self.chat({**b, "resume": True})
             if path == "/api/config":
