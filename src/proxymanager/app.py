@@ -64,7 +64,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
 
     @app.get("/v1/system")
     def system(_: str = Depends(authenticated)):
-        return {"service": "ProxyManager", "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd}
+        return {"service": "ProxyManager", "allowed_hosts": list(settings.allowed_hosts), "monthly_budget_usd": settings.monthly_budget_usd, "public_url": settings.public_url}
 
     @app.post("/v1/sessions", status_code=201)
     def create_session(owner: str = Depends(authenticated)):

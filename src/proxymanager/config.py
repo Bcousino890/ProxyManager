@@ -16,6 +16,7 @@ class Settings:
     health_concurrency: int = 2
     health_queue_limit: int = 20
     monthly_budget_usd: float = 25.0
+    public_url: str = ""
 
     def __post_init__(self):
         if min(self.health_concurrency, self.health_queue_limit, self.session_ttl_seconds, self.timeout_seconds, self.max_response_bytes) <= 0:
@@ -37,4 +38,5 @@ class Settings:
             timeout_seconds=float(os.getenv("PROXYMANAGER_TIMEOUT_SECONDS", "15")),
             max_response_bytes=int(os.getenv("PROXYMANAGER_MAX_RESPONSE_BYTES", "1000000")),
             monthly_budget_usd=float(os.getenv("PROXYMANAGER_MONTHLY_BUDGET_USD", "25")),
+            public_url=os.getenv("PROXYMANAGER_PUBLIC_URL", ""),
         )

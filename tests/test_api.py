@@ -20,6 +20,14 @@ def test_health_and_auth(tmp_path):
         assert client.get("/v1/system", headers={"X-API-Key": "eval-secret"}).status_code == 200
 
 
+def test_system_public_url(tmp_path):
+    app = create_app(make_settings(tmp_path, public_url="https://my-pod-12345.proxy.runpod.net"))
+    with TestClient(app) as client:
+        response = client.get("/v1/system", headers={"X-API-Key": "eval-secret"})
+        assert response.status_code == 200
+        assert response.json()["public_url"] == "https://my-pod-12345.proxy.runpod.net"
+
+
 def test_session_isolation(tmp_path):
     app = create_app(make_settings(tmp_path, evaluator_key="first", admin_key="second"))
     with TestClient(app) as client:
