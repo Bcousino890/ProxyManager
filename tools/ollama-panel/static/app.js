@@ -157,7 +157,7 @@ function setBusy(b) { S.busy = b; $('#send').hidden = b; $('#stop').hidden = !b;
 async function send(text, opts = {}) {
   text = (text ?? $('#input').value).trim();
   const atts = text.startsWith('!') || opts.attach ? [] : S.files.filter(f => f.state === 'ok');
-  if (!text && !atts.length && !opts.resume && !opts.attach && ['interrupted', 'blocked', 'incomplete', 'budget', 'stopped'].includes(S.status) && S.id) opts = {...opts, resume: true};
+  if (!text && !atts.length && !opts.resume && !opts.attach && ['interrupted', 'blocked', 'incomplete', 'budget', 'stopped', 'error'].includes(S.status) && S.id) opts = {...opts, resume: true};
   if ((!text && !atts.length && !opts.resume && !opts.attach) || S.busy) return;
   if (S.files.some(f => f.state === 'up')) { toast('Espera a que terminen de subir los archivos'); return; }
   if (!S.id) { const c = await api('/conversations', {}); S.id = c.id; }
@@ -223,7 +223,7 @@ function paintAgent(s, status) {
   $('#abGrid').innerHTML = items.map(([k, v]) => `<div><span class="muted">${k}</span> <b>${esc(v)}</b></div>`).join('');
   const L = {pending: 'PENDIENTE', running: 'EJECUTANDO', done: 'COMPLETADO', failed: 'FALLIDO', blocked: 'BLOQUEADO'};
   $('#abTasks').innerHTML = (s.tasks || []).map((t, i) => `<li class="st-${L[t.status]}">${i + 1}. [${L[t.status]}] ${esc(t.text)}${t.evidence ? ` <span class="muted">— ${esc(t.evidence.slice(0, 80))}</span>` : ''}</li>`).join('');
-  $('#abResume').hidden = !(['interrupted', 'blocked', 'incomplete', 'budget', 'stopped'].includes(status) && !S.busy);
+  $('#abResume').hidden = !(['interrupted', 'blocked', 'incomplete', 'budget', 'stopped', 'error'].includes(status) && !S.busy);
 }
 $('#abResume').onclick = e => { e.stopPropagation(); send('', {resume: true}); };
 $('#abHead').onclick = () => { $('#abBody').hidden = !$('#abBody').hidden; };
@@ -258,7 +258,7 @@ async function loadConvs() {
     const li = el('li', c.id === S.id ? 'on' : '', `<span class="t" title="${esc(c.title)}">${esc(c.title)}</span><span class="when">${({interrupted: '↻ interrumpida · ', blocked: '⛔ bloqueada · ', running: '▶ en curso · '})[c.state] || ''}${ago(c.updated)}</span>`), x = el('button', null, '✕'); x.title = 'Borrar';
     x.onclick = async e => { e.stopPropagation(); if (confirm('¿Borrar esta conversación?')) { await api('/conversations/' + c.id, {}, 'DELETE'); if (S.id === c.id) newConv(); else loadConvs(); } };
     li.onclick = async () => { if (S.busy) { toast('Hay una tarea en curso en la vista actual'); return; } S.id = c.id; const conv = await api('/conversations/' + c.id), r = await api('/run/' + c.id);
-      if (r.active) { render(conv, r.base); send('', {attach: true}); } else { render(conv); paintAgent(r.run ? {...r.run, ...(r.run.status === 'interrupted' || r.run.status === 'blocked' || r.run.status === 'incomplete' ? {resumable: true} : {})} : null, r.run && r.run.status); }
+      if (r.active) { render(conv, r.base); send('', {attach: true}); } else { render(conv); paintAgent(r.run ? {...r.run, ...(['interrupted', 'blocked', 'incomplete', 'budget', 'stopped', 'error'].includes(r.run.status) ? {resumable: true} : {})} : null, r.run && r.run.status); }
       loadConvs(); $('#side').classList.remove('open'); };
     li.append(x); ul.append(li);
   }
@@ -301,11 +301,13 @@ $('#cfgIntegrate').onclick = async () => { const t = prompt('Rama de destino (de
 async function depCheck(full) {
   $('#depSummary').textContent = 'Comprobando…';
   const r = await api('/deploy/check' + (full ? '?full=1' : ''));
-  $('#depSummary').textContent = r.ready ? '✔ Listo para trabajar' : '✖ Faltan cosas (ver abajo)';
+  const bad = r.items.filter(i => !i.ok).length; $('#depSummary').textContent = (r.ready ? '✔ Listo para trabajar' : '✖ Faltan cosas') + (bad ? ` · ${bad} aviso${bad > 1 ? 's' : ''}` : '') + ' (pulsa para ver)';
   $('#depList').innerHTML = r.items.map(i => `<li class="${i.ok ? 'ok' : 'bad'}" title="${esc(i.fix || '')}">${i.ok ? '✔' : '✖'} ${esc(i.label)}${i.detail ? ` <span class="muted">· ${esc(i.detail)}</span>` : ''}${!i.ok && i.fix ? `<div class="muted">→ ${esc(i.fix)}</div>` : ''}</li>`).join('');
   if (r.pod_id && !$('#depPod').value) $('#depPod').value = r.pod_id; if (r.app_port && !$('#depPort').value) $('#depPort').value = r.app_port;
   const u = $('#depUrl'); u.hidden = !r.public_url; if (r.public_url) { u.href = r.public_url; u.textContent = r.public_url; }
 }
-$('#depCheck').onclick = () => depCheck(true);
+$('#depCheck').onclick = () => { $('#depList').hidden = false; depCheck(true); };
+$('#depSummary').onclick = () => { $('#depList').hidden = !$('#depList').hidden; };
+$('#depList').hidden = true;
 $('#depSave').onclick = async () => { const r = await api('/deploy/config', {pod_id: $('#depPod').value, app_port: $('#depPort').value}); toast(r.ok ? 'Guardado' : r.msg); depCheck(false); };
 depCheck(false);

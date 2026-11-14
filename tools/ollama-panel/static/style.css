@@ -131,3 +131,8 @@ details.think .tt{white-space:pre-wrap;margin-top:6px;max-height:260px;overflow:
 
 .dep{list-style:none;margin:6px 0;padding:0;font-size:12px}.dep li{padding:2px 0}.dep li.ok{color:var(--ok)}.dep li.bad{color:var(--bad)}.dep li .muted{color:var(--muted)}
 .dep-cfg{display:flex;gap:6px;margin:6px 0}.dep-cfg input{min-width:0;flex:1}
+
+.side{overflow-y:auto}
+#depSummary{cursor:pointer}.dep{max-height:210px;overflow:auto}
+.dep-cfg{display:none}.block:hover .dep-cfg,.dep-cfg:focus-within{display:flex}
+.block.grow{min-height:220px;flex-shrink:0}
