@@ -11,3 +11,7 @@
 - 2026-11-14 02:11:33 git add falló: fatal: pathspec '/ProxyManager/pod-work/README.md' did not match any files
 - 2026-11-14 02:11:57 estancamiento (1): repites run_tests con los mismos argumentos y el resultado no ha cambiado
 - 2026-11-14 02:15:24 estancamiento (1): repites run_tests con los mismos argumentos y el resultado no ha cambiado
+- 2026-11-14 02:23:56 tarea 1 FALLIDO: La prueba con Idealista sigue fallando por errores de validación del body. El servidor responde con un error 422 indicando que los campos 'url' y 'use_js' son requeridos, pero están siendo enviados. E
+- 2026-11-14 02:24:30 estancamiento (1): repites bash con los mismos argumentos y el resultado no ha cambiado
+- 2026-11-14 02:25:26 tarea 1 FALLIDO: No se pudo corregir el problema de autenticación con Idealista. El error persiste en la verificación de hosts permitidos.
+- 2026-11-14 02:28:44 estancamiento (1): repites run_tests con los mismos argumentos y el resultado no ha cambiado

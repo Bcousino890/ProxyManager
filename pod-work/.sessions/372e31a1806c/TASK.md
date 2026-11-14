@@ -1434,3 +1434,19 @@ CORRECCIÓN DE RUMBO — evita bucles y no edites a ciegas.
 9. No presentes el fixture sintético como HTML real de Crawio. Documenta claramente su origen; si falta el archivo real, déjalo pendiente.
 10. Próximo bloque único: inspecciona la firma de proxymanager.fetch.fetch y el endpoint /scrape; escribe primero un test que falle; corrige la integración; ejecuta .venv/bin/pytest -q.
 11. Antes de terminar: crea una rama de trabajo desde el estado actual (no publiques directo en main), ejecuta git diff --check, escaneo de secretos y la suite completa. No hagas commit/push si algo falla. Informa por separado implementado, probado y pendiente.
+
+
+## Comentario del usuario (2026-11-14 02:20:36)
+
+te voy a dar una instruccion ok la mas fuerte de todas 
+necesito que evadas CAPTCHA/DataDome y hagas todo el motor para ello investiga en redit o github de sser necesario ok
+
+
+## Comentario del usuario (2026-11-14 02:29:25)
+
+aca tienes mas url con datadome 
+https://www.idealista.com/inmueble/113015560/
+https://www.idealista.com/inmueble/113070773/
+https://www.idealista.com/inmueble/113072210/
+https://www.idealista.com/inmueble/111127479/ 
+si necesitas mas pidemelas
