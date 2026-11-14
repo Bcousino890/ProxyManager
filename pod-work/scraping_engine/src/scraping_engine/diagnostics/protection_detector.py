@@ -9,7 +9,7 @@ import asyncio
 from scraping_engine.diagnostics.response_classifier import (
     ResponseClassifier,
     ResponseClassification,
-    ProtectionType
+    ResponseStatus
 )
 from scraping_engine.diagnostics.evidence import Evidence
 
@@ -20,7 +20,7 @@ class DetectionResult:
     def __init__(
         self,
         is_protected: bool,
-        protection_type: ProtectionType,
+        protection_type: ResponseStatus,
         evidence: Evidence,
         detection_time: Optional[float] = None
     ):
@@ -28,6 +28,9 @@ class DetectionResult:
         self.protection_type = protection_type
         self.evidence = evidence
         self.detection_time = detection_time or time.time()
+        
+    def __repr__(self):
+        return f"DetectionResult(is_protected={self.is_protected}, protection_type={self.protection_type})"
 
 
 class ProtectionDetector:
@@ -36,7 +39,7 @@ class ProtectionDetector:
     def __init__(self):
         self.classifier = ResponseClassifier()
         
-    async def detect_protection(
+    def detect_protection(
         self,
         http_status_code: int,
         headers: Dict[str, str],
@@ -57,7 +60,7 @@ class ProtectionDetector:
         """
         # Clasificar la respuesta
         classification = self.classifier.classify_response(
-            http_status_code=http_status_code,
+            status_code=http_status_code,
             headers=headers,
             content=content,
             response_time=response_time
@@ -73,7 +76,7 @@ class ProtectionDetector:
         )
         
         # Determinar si está protegido
-        is_protected = classification.protection_type != ProtectionType.NONE
+        is_protected = classification.protection_type != ResponseStatus.OK
         
         return DetectionResult(
             is_protected=is_protected,

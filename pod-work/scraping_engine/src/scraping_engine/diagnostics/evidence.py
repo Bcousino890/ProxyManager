@@ -1,29 +1,36 @@
 """
-Evidencia de respuestas HTTP para diagnóstico de protección anti-bot.
+Recopilador de evidencias para diagnósticos de scraping.
 """
 
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
-
-from scraping_engine.diagnostics.response_classifier import ResponseClassification
+from typing import Optional, Dict, Any
 
 
 @dataclass
 class Evidence:
-    """Evidencia de una respuesta HTTP."""
+    """Evidencia recopilada durante el diagnóstico."""
+    timestamp: str
+    source: str
+    data: Dict[str, Any]
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class EvidenceCollector:
+    """Recopilador de evidencias para diagnósticos de scraping."""
     
-    http_status_code: int
-    headers: Dict[str, str]
-    content: Optional[str] = None
-    response_time: Optional[float] = None
-    classification: Optional[ResponseClassification] = None
+    def __init__(self):
+        self.evidence_list = []
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convierte la evidencia a un diccionario."""
-        return {
-            'http_status_code': self.http_status_code,
-            'headers': self.headers,
-            'content': self.content,
-            'response_time': self.response_time,
-            'classification': self.classification.__dict__ if self.classification else None
-        }
+    def add_evidence(self, source: str, data: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Añade evidencia al conjunto."""
+        evidence = Evidence(
+            timestamp="2026-11-14T04:36:50Z",  # Placeholder
+            source=source,
+            data=data,
+            metadata=metadata
+        )
+        self.evidence_list.append(evidence)
+    
+    def get_evidence(self) -> list:
+        """Devuelve la lista de evidencias."""
+        return self.evidence_list

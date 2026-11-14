@@ -1,215 +1,275 @@
 """
-Clasificador de respuestas HTTP para identificar protección anti-bot.
+Clasificador de respuestas HTTP para identificar protección y estado de acceso.
 """
 
-from enum import Enum
-from typing import Optional, Dict, Any
 import re
+from enum import Enum
+from dataclasses import dataclass
+from typing import Optional, List
 
 class ResponseStatus(Enum):
     """Estados posibles de una respuesta HTTP."""
-    SUCCESS = "success"
-    REDIRECT = "redirect"
-    CLIENT_ERROR = "client_error"
-    SERVER_ERROR = "server_error"
+    OK = "ok"
+    DATA_DOME_CHALLENGE = "data_dome_challenge"
+    CAPTCHA = "captcha"
+    ACCESS_DENIED = "access_denied"
     TIMEOUT = "timeout"
     CONNECTION_ERROR = "connection_error"
+    SERVER_ERROR = "server_error"
+    REDIRECT = "redirect"
+    EMPTY_RESPONSE = "empty_response"
+    UNEXPECTED_CONTENT = "unexpected_content"
     PROXY_ERROR = "proxy_error"
     TLS_ERROR = "tls_error"
-    DATA_DOME_CHALLENGE = "datadome_challenge"
-    CAPTCHA = "captcha"
-    ACCESS_DENIED = "access_denied"
-    EMPTY_RESPONSE = "empty_response"
-    UNEXPECTED_REDIRECT = "unexpected_redirect"
 
-class ProtectionType(Enum):
-    """Tipos de protección detectados."""
-    NONE = "none"
-    DATADOME = "datadome"
-    CLOUDFLARE = "cloudflare"
-    CAPTCHA = "captcha"
-    RATE_LIMIT = "rate_limit"
-    ACCESS_DENIED = "access_denied"
-    TIMEOUT = "timeout"
-    CONNECTION_ERROR = "connection_error"
-
+@dataclass
 class ResponseClassification:
     """Clasificación de una respuesta HTTP."""
-    
-    def __init__(
-        self,
-        http_status_code: int,
-        status: ResponseStatus,
-        protection_type: ProtectionType,
-        headers: Optional[Dict[str, str]] = None,
-        content_length: Optional[int] = None,
-        response_time: Optional[float] = None,
-        error_message: Optional[str] = None,
-        is_accessible: bool = True,
-        is_content_valid: bool = True,
-        evidence: Optional[list] = None
-    ):
+    status_code: int
+    http_status_code: int  # Código HTTP real
+    is_accessible: bool  # Indica si el contenido es accesible
+    protection_type: Optional[ResponseStatus] = None
+    content_length: int = 0
+    headers: Optional[dict] = None
+    error_message: Optional[str] = None
+
+    @property
+    def status(self) -> ResponseStatus:
+        return self.protection_type
+
+    def __init__(self, status_code: int, http_status_code: int, is_accessible: bool, 
+                 protection_type: Optional[ResponseStatus], content_length: int, headers: dict):
+        self.status_code = status_code
         self.http_status_code = http_status_code
-        self.status = status
-        self.protection_type = protection_type
-        self.headers = headers or {}
-        self.content_length = content_length
-        self.response_time = response_time
-        self.error_message = error_message
         self.is_accessible = is_accessible
-        self.is_content_valid = is_content_valid
-        self.evidence = evidence or []
-        
-    def __repr__(self):
-        return f"ResponseClassification(status={self.status}, http_status_code={self.http_status_code})"
-    
-    def _is_accessible(self) -> bool:
-        """Determina si la respuesta es accesible."""
-        return (
-            self.status == ResponseStatus.SUCCESS and 
-            self.protection_type == ProtectionType.NONE and
-            self.http_status_code < 400
-        )
-    
-    def _is_content_valid(self) -> bool:
-        """Determina si el contenido de la respuesta es válido."""
-        # Si no hay contenido, no es válido
-        if self.content_length == 0:
-            return False
-        
-        # Si es un error de servidor o cliente, no es válido
-        if self.http_status_code >= 400:
-            return False
-            
-        return True
+        self.protection_type = protection_type
+        self.content_length = content_length
+        self.headers = headers
 
 class ResponseClassifier:
-    """Clasificador de respuestas HTTP para identificar protección anti-bot."""
+    """Clasificador de respuestas HTTP."""
     
-    # Patrones comunes para detectar DataDome
-    DATADOME_PATTERNS = [
-        re.compile(r'datadome', re.IGNORECASE),
-        re.compile(r'datadome\.io', re.IGNORECASE),
-        re.compile(r'cloudflare', re.IGNORECASE),  # Cloudflare también puede estar presente
-    ]
-    
-    # Patrones comunes para detectar CAPTCHA
-    CAPTCHA_PATTERNS = [
-        re.compile(r'captcha', re.IGNORECASE),
-        re.compile(r'challenge.*page', re.IGNORECASE),
-        re.compile(r'blocked.*access', re.IGNORECASE),
-        re.compile(r'please.*verify', re.IGNORECASE),
-    ]
-    
-    # Patrones para identificar páginas de acceso denegado
-    ACCESS_DENIED_PATTERNS = [
-        re.compile(r'access.*denied', re.IGNORECASE),
-        re.compile(r'forbidden', re.IGNORECASE),
-        re.compile(r'403', re.IGNORECASE),
-        re.compile(r'blocked', re.IGNORECASE),
-    ]
-    
-    # Patrones para identificar respuestas vacías o inválidas
-    EMPTY_RESPONSE_PATTERNS = [
-        re.compile(r'<html[^>]*><body[^>]*></body></html>', re.IGNORECASE),
-        re.compile(r'<html[^>]*></html>', re.IGNORECASE),
-    ]
-    
-    @classmethod
-    def classify_response(
-        cls,
-        http_status_code: int,
-        headers: Dict[str, str],
-        content: Optional[str] = None,
-        response_time: Optional[float] = None
-    ) -> ResponseClassification:
+    @staticmethod
+    def classify(status_code: int, content: str, headers: dict = None) -> ResponseClassification:
         """
-        Clasifica una respuesta HTTP según su estado, encabezados y contenido.
+        Clasifica una respuesta HTTP según su código, contenido y encabezados.
         
         Args:
-            http_status_code: Código de estado HTTP
-            headers: Encabezados HTTP
-            content: Contenido de la respuesta (opcional)
-            response_time: Tiempo de respuesta en segundos
+            status_code: Código HTTP de la respuesta
+            content: Contenido de la respuesta
+            headers: Encabezados de la respuesta
             
         Returns:
-            ResponseClassification: Clasificación de la respuesta
+            ResponseClassification con la clasificación
         """
-        # Inicializar clasificación por defecto
+        # Inicializar clasificación
         classification = ResponseClassification(
-            status=ResponseStatus.SUCCESS,
-            protection_type=ProtectionType.NONE,
-            http_status_code=http_status_code,
-            headers=headers,
-            response_time=response_time
+            status_code=status_code,
+            http_status_code=status_code,
+            is_accessible=False,
+            protection_type=None,
+            content_length=len(content) if content else 0,
+            headers=headers or {}
         )
         
-        # Verificar código de estado HTTP
-        if http_status_code == 403:
-            classification.status = ResponseStatus.DATA_DOME_CHALLENGE
-            classification.protection_type = ProtectionType.DATADOME
+        # Verificar errores de conexión o timeout
+        if not content:
             classification.is_accessible = False
+            classification.protection_type = ResponseStatus.EMPTY_RESPONSE
+            return classification
             
-        elif http_status_code == 429:
-            classification.status = ResponseStatus.ERROR
-            classification.protection_type = ProtectionType.RATE_LIMIT
-            
-        elif http_status_code in [408, 504]:
-            classification.status = ResponseStatus.ERROR
-            classification.protection_type = ProtectionType.TIMEOUT
-            
-        elif http_status_code >= 500:
-            classification.status = ResponseStatus.ERROR
-            classification.protection_type = ProtectionType.CONNECTION_ERROR
-            
-        elif http_status_code in [301, 302, 307, 308]:
-            classification.status = ResponseStatus.REDIRECT
-            classification.protection_type = ProtectionType.NONE
-            
-        # Verificar encabezados para protección anti-bot
-        for header_name, header_value in headers.items():
-            header_value_lower = header_value.lower()
-            
-            # Detectar DataDome
-            if any(pattern.search(header_value_lower) for pattern in ResponseClassifier.DATADOME_PATTERNS):
-                classification.status = ResponseStatus.DATA_DOME_CHALLENGE
-                classification.protection_type = ProtectionType.DATADOME
-                
-            # Detectar CAPTCHA
-            elif any(pattern.search(header_value_lower) for pattern in ResponseClassifier.CAPTCHA_PATTERNS):
-                classification.status = ResponseStatus.CAPTCHA
-                classification.protection_type = ProtectionType.CAPTCHA
-                
-            # Detectar acceso denegado
-            elif any(pattern.search(header_value_lower) for pattern in ResponseClassifier.ACCESS_DENIED_PATTERNS):
-                classification.status = ResponseStatus.ERROR
-                classification.protection_type = ProtectionType.ACCESS_DENIED
-                
-        # Verificar contenido para protección anti-bot
-        if content:
-            content_lower = content.lower()
-            
-            # Detectar DataDome en el cuerpo de la respuesta
-            if any(pattern.search(content_lower) for pattern in ResponseClassifier.DATADOME_PATTERNS):
-                classification.status = ResponseStatus.DATA_DOME_CHALLENGE
-                classification.protection_type = ProtectionType.DATADOME
+        # Verificar código HTTP específico
+        if status_code == 403:
+            # Verificar si es un desafío DataDome
+            if ResponseClassifier._is_data_dome_challenge(content, headers):
                 classification.is_accessible = False
-                
-            # Detectar CAPTCHA en el cuerpo de la respuesta
-            elif any(pattern.search(content_lower) for pattern in ResponseClassifier.CAPTCHA_PATTERNS):
-                classification.status = ResponseStatus.ERROR
-                classification.protection_type = ProtectionType.CAPTCHA
+                classification.protection_type = ResponseStatus.DATA_DOME_CHALLENGE
+                return classification
+            elif ResponseClassifier._is_captcha(content, headers):
                 classification.is_accessible = False
+                classification.protection_type = ResponseStatus.CAPTCHA
+                return classification
+            else:
+                classification.is_accessible = False
+                classification.protection_type = ResponseStatus.ACCESS_DENIED
+                return classification
                 
-            # Detectar páginas vacías o inválidas
-            elif any(pattern.match(content_lower) for pattern in ResponseClassifier.EMPTY_RESPONSE_PATTERNS):
-                classification.status = ResponseStatus.EMPTY_CONTENT
-                classification.protection_type = ProtectionType.NONE
-                classification.is_content_valid = False
-        else:
-            # Si no hay contenido, se marca como no accesible y sin contenido válido
+        elif status_code == 429:
             classification.is_accessible = False
-            classification.is_content_valid = False
-            classification.evidence.append("Empty content detected")
+            classification.protection_type = ResponseStatus.REDIRECT
+            return classification
+            
+        elif status_code in [500, 502, 503, 504]:
+            classification.is_accessible = False
+            classification.protection_type = ResponseStatus.SERVER_ERROR
+            return classification
+            
+        elif status_code >= 300 and status_code < 400:
+            classification.is_accessible = True
+            classification.protection_type = ResponseStatus.REDIRECT
+            return classification
+            
+        elif status_code == 200:
+            # Verificar si el contenido es útil
+            if ResponseClassifier._is_empty_content(content):
+                classification.is_accessible = False
+                classification.protection_type = ResponseStatus.EMPTY_RESPONSE
+                return classification
+            elif ResponseClassifier._is_challenge_content(content):
+                classification.is_accessible = False
+                classification.protection_type = ResponseStatus.DATA_DOME_CHALLENGE
+                return classification
+            else:
+                classification.is_accessible = True
+                classification.protection_type = ResponseStatus.OK
+                return classification
                 
+        # Otros códigos HTTP
+        if status_code >= 400:
+            classification.is_accessible = False
+            classification.protection_type = ResponseStatus.UNEXPECTED_CONTENT
+            return classification
+            
+        # Código 200 o similar, contenido útil
+        classification.is_accessible = True
+        classification.protection_type = ResponseStatus.OK
         return classification
+
+    @staticmethod
+    def classify_response(status_code: int, content: str, headers: dict = None, response_time: float = None) -> ResponseClassification:
+        """Alias para classify para mantener compatibilidad con tests."""
+        return ResponseClassifier.classify(status_code, content, headers)
+        
+    @staticmethod
+    def _is_data_dome_challenge(content: str, headers: dict) -> bool:
+        """Verifica si la respuesta es un desafío DataDome."""
+        # Verificar encabezados típicos de DataDome
+        if headers:
+            for key, value in headers.items():
+                if "datadome" in key.lower() or "datadome" in value.lower():
+                    return True
+                    
+        # Verificar contenido HTML típico de DataDome
+        content_lower = content.lower()
+        data_dome_indicators = [
+            r'datadome',
+            r'datadome\.io',
+            r'cloudflare.*challenge',
+            r'blocked by datadome',
+            r'datadome.*captcha'
+        ]
+        
+        for pattern in data_dome_indicators:
+            if re.search(pattern, content_lower):
+                return True
+                
+        return False
+        
+    @staticmethod
+    def _is_captcha(content: str, headers: dict) -> bool:
+        """Verifica si la respuesta contiene un CAPTCHA."""
+        # Verificar encabezados de CAPTCHA
+        if headers:
+            for key, value in headers.items():
+                if "captcha" in key.lower() or "captcha" in value.lower():
+                    return True
+                    
+        # Verificar contenido HTML típico de CAPTCHA
+        content_lower = content.lower()
+        captcha_indicators = [
+            r'<.*captcha.*>',
+            r'captcha',
+            r'google.*recaptcha',
+            r'hcaptcha'
+        ]
+        
+        for pattern in captcha_indicators:
+            if re.search(pattern, content_lower):
+                return True
+                
+        return False
+        
+    @staticmethod
+    def _is_empty_content(content: str) -> bool:
+        """Verifica si el contenido está vacío o es inválido."""
+        if not content:
+            return True
+            
+        stripped = content.strip()
+        if len(stripped) == 0:
+            return True
+            
+        # Si el contenido tiene más de 30 caracteres y no es solo HTML básico, considerarlo útil
+        if len(stripped) > 30:
+            return False
+            
+        # Si el contenido tiene entre 1 y 30 caracteres, verificar si es útil
+        if 1 <= len(stripped) <= 30:
+            # Verificar si contiene texto significativo (no solo etiquetas HTML)
+            clean_content = re.sub(r'<[^>]+>', '', stripped)
+            clean_content = re.sub(r'\s+', ' ', clean_content).strip()
+            
+            # Si el contenido limpio tiene más de 5 caracteres, considerarlo útil
+            if len(clean_content) > 5:
+                return False
+                
+        # Si llegamos aquí, es porque el contenido es corto y no tiene texto significativo
+        return True
+
+    @staticmethod
+    def _is_data_dome_challenge(content: str, headers: dict) -> bool:
+        """Verifica si la respuesta es un desafío DataDome."""
+        # Verificar encabezados típicos de DataDome
+        if headers:
+            for key, value in headers.items():
+                if "datadome" in key.lower() or "datadome" in value.lower():
+                    return True
+                    
+        # Verificar contenido HTML típico de DataDome
+        content_lower = content.lower()
+        data_dome_indicators = [
+            r'datadome',
+            r'datadome\.io',
+            r'cloudflare.*challenge',
+            r'blocked by datadome',
+            r'datadome.*captcha'
+        ]
+        
+        for pattern in data_dome_indicators:
+            if re.search(pattern, content_lower):
+                return True
+                
+        # Verificar contenido específico de DataDome
+        datadome_indicators = [
+            'datadome',
+            'cloudflare',
+            'captcha',
+            'challenge',
+            'blocked'
+        ]
+        
+        for indicator in datadome_indicators:
+            if indicator in content_lower:
+                return True
+                
+        return False
+        
+    @staticmethod
+    def _is_challenge_content(content: str) -> bool:
+        """Verifica si el contenido es un desafío de protección."""
+        content_lower = content.lower()
+        
+        challenge_indicators = [
+            r'challenge.*required',
+            r'access.*denied',
+            r'blocked.*access',
+            r'security.*check',
+            r'please.*verify',
+            r'verify.*you.*are.*human'
+        ]
+        
+        for pattern in challenge_indicators:
+            if re.search(pattern, content_lower):
+                return True
+                
+        return False

@@ -1,3 +1,3 @@
 """
-Motor de scraping modular.
+Motor de scraping modular y extensible.
 """

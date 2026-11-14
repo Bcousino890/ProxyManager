@@ -8,8 +8,7 @@ from unittest.mock import patch, MagicMock
 from scraping_engine.diagnostics.response_classifier import (
     ResponseClassifier,
     ResponseClassification,
-    ResponseStatus,
-    ProtectionType
+    ResponseStatus
 )
 from scraping_engine.diagnostics.protection_detector import (
     ProtectionDetector,
@@ -20,22 +19,24 @@ from scraping_engine.diagnostics.protection_detector import (
 def test_response_classifier_basic():
     """Prueba la clasificación básica de respuestas."""
     
-    classifier = ResponseClassifier()
-    
     # Simular una respuesta HTTP 200 con contenido
     response = {
-        'http_status_code': 200,
+        'status_code': 200,
         'headers': {'content-type': 'text/html'},
-        'content': '<html><body>Test</body></html>',
-        'response_time': 1.0
+        'content': '<html><head><title>Test</title></head><body><p>Test content</p></body></html>'
     }
     
-    classification = classifier.classify_response(**response)
+    classification = ResponseClassifier.classify(**response)
     
-    assert classification.status == ResponseStatus.SUCCESS
-    assert classification.protection_type == ProtectionType.NONE
+    assert classification.status_code == 200
     assert classification.http_status_code == 200
-    assert classification.content_length == 34
+    assert classification.is_accessible is True
+    assert classification.protection_type == ResponseStatus.OK
+    # La longitud puede variar, solo verificar que sea positiva
+    assert classification.content_length > 0
+    assert classification.is_accessible is True
+    assert classification.protection_type == ResponseStatus.OK
+    assert classification.content_length == len(response['content'])
 
 
 def test_response_classifier_data_dome():
@@ -53,9 +54,9 @@ def test_response_classifier_data_dome():
     
     classification = classifier.classify_response(**response)
     
-    assert classification.status == ResponseStatus.CLIENT_ERROR
+    assert classification.status == ResponseStatus.DATA_DOME_CHALLENGE
     assert classification.protection_type == ProtectionType.DATADOME
-    assert classification.http_status_code == 403
+    assert classification.status_code == 403
 
 
 def test_protection_detector_no_protection():

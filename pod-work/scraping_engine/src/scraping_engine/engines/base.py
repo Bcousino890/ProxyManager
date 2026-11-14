@@ -1,47 +1,51 @@
-"""Base classes for scraping engines."""
-
-from enum import Enum
-from typing import Optional, Dict, Any
+"""
+Clases base para motores de scraping.
+"""
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
-from scraping_engine.core.base import BaseEngine, ScrapingResult
-
-
-class EngineType(str, Enum):
-    """Tipos de motores de scraping."""
-    
-    HTTP = "http"
-    BROWSER = "browser"
-
-
 @dataclass
-class EngineConfig:
-    """Configuración común para motores de scraping."""
+class ScrapingResult:
+    """Resultado de una operación de scraping."""
     
-    timeout: int = 30
-    max_retries: int = 3
-    headers: Optional[Dict[str, str]] = None
-    proxy: Optional[str] = None
-    use_cookies: bool = True
+    url: str
+    status_code: int
+    content: str
+    headers: Dict[str, str]
+    cookies: Dict[str, str]
+    response_time: float
+    error: Optional[Exception] = None
+    metadata: Optional[Dict[str, Any]] = None
 
-
-class BaseHttpEngine(BaseEngine):
-    """Motor base para scraping HTTP."""
+class BaseEngine(ABC):
+    """Motor base de scraping."""
     
-    def __init__(self, config: Optional[EngineConfig] = None):
-        super().__init__()
-        self.name = "BaseHttpEngine"
-        self.config = config or EngineConfig()
-        
-    async def scrape(self, url: str, **kwargs) -> ScrapingResult:
+    @abstractmethod
+    async def fetch(self, url: str, **kwargs) -> ScrapingResult:
         """
-        Método principal de scraping HTTP.
+        Realiza una solicitud HTTP a la URL especificada.
         
         Args:
-            url (str): URL a scrapear
+            url: URL a acceder
             **kwargs: Parámetros adicionales
             
         Returns:
-            ScrapingResult: Resultado del scraping
+            ScrapingResult con los datos de la respuesta
         """
-        raise NotImplementedError("Este método debe ser implementado por las subclases")
+        pass
+    
+    @abstractmethod
+    async def post(self, url: str, data: Dict[str, Any], **kwargs) -> ScrapingResult:
+        """
+        Realiza una solicitud POST a la URL especificada.
+        
+        Args:
+            url: URL a acceder
+            data: Datos a enviar en el cuerpo de la solicitud
+            **kwargs: Parámetros adicionales
+            
+        Returns:
+            ScrapingResult con los datos de la respuesta
+        """
+        pass

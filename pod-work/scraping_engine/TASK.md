@@ -879,3 +879,54 @@ Entrega:
 - Scripts de arranque.
 - Scripts de migración.
 - Scr
+
+
+## Instrucción del usuario (2026-11-14 04:02:38)
+
+CONTINUACIÓN OBLIGATORIA — ÚLTIMA FASE ANTES DE APAGAR RUNPOD
+
+NO EMPIECES DESDE CERO.
+
+El controlador informa:
+
+- main: 123ac8a4, sincronizado con GitHub.
+- 4 archivos sin commit.
+- API operativa.
+- 2 pruebas aprobadas y 1 fallida.
+- Arquitectura completa todavía sin verificar.
+
+OBJETIVO:
+
+Dejar todo el motor de scraping portable, documentado y guardado en GitHub para continuar después con Claude Code.
+
+INSTRUCCIONES:
+
+1. Inspecciona el código existente y elimina duplicaciones solo cuando esté demostrado que son innecesarias.
+2. Conserva y publica los 4 archivos pendientes después de revisarlos y verificar que no contienen secretos.
+3. Identifica y corrige la prueba fallida.
+4. Completa las interfaces del motor HTTP, Playwright, proxies, sesiones, diagnóstico de protecciones y extractores.
+5. Implementa pruebas para cada componente.
+6. Utiliza el HTML del desafío DataDome como fixture sanitizado para el detector.
+7. No repitas solicitudes a Idealista que continúen devolviendo 403.
+8. Prepara Dockerfile, docker-compose.yml, .env.example y dependencias con versiones fijadas.
+9. Crea CLAUDE.md, AGENTS.md y documentación completa de instalación y arquitectura.
+10. Comprueba que el motor puede funcionar sin Ollama ni GPU.
+11. Realiza una instalación y prueba desde un clon limpio.
+12. Guarda avances mediante commits incrementales y push a GitHub.
+13. Verifica que el hash remoto coincide después de cada publicación.
+14. No cambies el agente del puerto 8787 ni reinicies RunPod.
+
+NO dediques tiempo al diseño del Playground, dashboards ni URL pública.
+
+Antes de concluir, proporciona evidencia verificable de:
+
+- Arquitectura construida.
+- Pruebas aprobadas.
+- Archivos guardados.
+- Docker funcional.
+- Instalación limpia reproducible.
+- Limitaciones existentes.
+
+No declares COMPLETADO solo porque /health responde 200.
+
+Si se agota el presupuesto, guarda primero todos los avances recuperables en GitHub y deja documentado el punto exacto de continuación.
