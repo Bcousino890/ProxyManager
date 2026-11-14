@@ -142,6 +142,12 @@ def test_stagnation_detector():
     s4 = kit.Stagnation(); s4.record("bash", {"command": "rm -rf x"}, False, "no", blocked=True)
     assert s4.record("bash", {"command": "rm -rf x"}, False, "no", blocked=True)
 
+def test_stagnation_same_call_changing_output():
+    s = kit.Stagnation(); r = [s.record("bash", {"command": "curl health"}, True, "ok ts=%f" % (1794616018.29 + i * 1.7)) for i in range(4)]
+    assert r[0] is None and r[2] and "veces seguidas" in r[2]
+    s2 = kit.Stagnation(); s2.record("bash", {"command": "curl health"}, True, "ok 1"); s2.record("write_file", {"path": "a"}, True, "w")
+    assert s2.record("bash", {"command": "curl health"}, True, "ok 2") is None   # hubo un cambio entre medias: no es bucle
+
 def test_compaction_keeps_instructions_and_memory_and_repair():
     conv = {"id": "cmp1", "messages": [], "title": "t"}
     ag, ev = mk_agent(conv); ag.init_project("cmp", "TAREA ORIGINAL IMPORTANTE", session=False)
@@ -178,7 +184,7 @@ class Fake(BaseHTTPRequestHandler):
 
 @pytest.fixture(scope="module", autouse=True)
 def fake_ollama():
-    srv.OLLAMA = f"http://127.0.0.1:{FAKE_PORT}"
+    srv.OLLAMA = f"http://127.0.0.1:{FAKE_PORT}"; srv.LIMIT_H = 10 ** 6   # el reloj real del pod no debe afectar a las pruebas
     s = ThreadingHTTPServer(("127.0.0.1", FAKE_PORT), Fake); threading.Thread(target=s.serve_forever, daemon=True).start()
     yield; s.shutdown()
 

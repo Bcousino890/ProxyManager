@@ -240,6 +240,9 @@ def git_save(message, push=None):
     if strat == "local":
         return {"ok": True, "committed": False, "pushed": False, "msg": "Estrategia «solo local»: archivos guardados en el pod, sin commit."}
     ensure_branch()
+    _, cur = git("rev-parse", "--abbrev-ref", "HEAD")
+    if cur.strip() != BRANCH:   # el agente cambió de rama y no pudimos volver: no publicamos nada en la rama equivocada
+        return {"ok": False, "committed": False, "pushed": False, "msg": f"No se publicó: el repositorio está en la rama «{cur.strip()}», no en «{BRANCH}». Cambia de rama o ajusta la rama en ⚙."}
     ok, msg = kit.commit_paths(message[:100], [str(WORKDIR)])
     if not ok:
         return {"ok": False, "committed": False, "pushed": False, "msg": msg}

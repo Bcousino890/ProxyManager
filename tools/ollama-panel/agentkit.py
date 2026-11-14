@@ -310,11 +310,17 @@ class Stagnation:
     """Detecta bucles sin progreso. record() devuelve un motivo (str) cuando hay estancamiento."""
     def __init__(self):
         self.sig = {}; self.world = 0; self.err_sig = None; self.err_n = 0; self.writes = Counter(); self.strikes = 0
-        self.empty = 0; self.noaction = 0; self.parsefail = 0; self.blocked = Counter(); self.seen_ok = set()
+        self.empty = 0; self.noaction = 0; self.parsefail = 0; self.blocked = Counter(); self.seen_ok = set(); self.last_key = None; self.consec = 0; self.consec_world = 0; self.fs_world = 0
 
     def record(self, name, args, ok, out, blocked=False):
         key = json.dumps([name, args], sort_keys=True, default=str)
-        osig = hashlib.md5(re.sub(r"\[\d+(\.\d+)?s\]|\d{2}:\d{2}:\d{2}|0x[0-9a-f]+|pid \d+", "", out or "")[-600:].encode()).hexdigest()
+        osig = hashlib.md5(re.sub(r"\d+(\.\d+)?|0x[0-9a-f]+", "#", out or "")[-600:].encode()).hexdigest()
+        if key == self.last_key and self.consec_world == self.fs_world and name not in ("plan", "notify"):
+            self.consec += 1
+        else:
+            self.consec = 1
+        self.last_key, self.consec_world = key, self.fs_world
+        if name in ("write_file", "edit_file", "git_commit", "proc_start") and ok: self.fs_world += 1
         mutating = name in ("write_file", "edit_file", "git_commit", "proc_start") or (name == "bash" and ok and not RO_CMD.match(str(args.get("command", ""))))
         reason = None
         if blocked:
@@ -322,8 +328,10 @@ class Stagnation:
             if self.blocked[key] >= 2: reason = f"el comando {name} fue bloqueado/rechazado {self.blocked[key]} veces"
         else:
             prev = self.sig.get(key)
+            if self.consec >= 3 and not blocked:
+                reason = f"has ejecutado {name} con los mismos argumentos {self.consec} veces seguidas sin cambiar nada entre medias (aunque la salida parezca distinta)"
             if prev and prev == (osig, self.world) and name not in ("plan", "notify", "proc_inspect"):
-                reason = f"repites {name} con los mismos argumentos y el resultado no ha cambiado"
+                reason = reason or f"repites {name} con los mismos argumentos y el resultado no ha cambiado"
             self.sig[key] = (osig, self.world)
             if not ok:
                 self.err_n = self.err_n + 1 if self.err_sig == osig else 1; self.err_sig = osig
