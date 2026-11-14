@@ -22,7 +22,20 @@ def guard_url(url: str, settings: Settings) -> tuple[str, str]:
         raise DestinationRejected("URL inválida") from exc
     if parsed.scheme != "https" or not host or parsed.username or parsed.password or parsed.fragment or port not in (None, 443):
         raise DestinationRejected("Solo se permiten URLs HTTPS estándar")
-    if host not in settings.allowed_hosts:
+    # Verificar si el host está en la lista de hosts permitidos o es subdominio
+    is_allowed = False
+    for allowed_host in settings.allowed_hosts:
+        if isinstance(allowed_host, str) and allowed_host.startswith('.'):
+            # Para dominios como .example.com, permitir todos los subdominios
+            if host.endswith(allowed_host):
+                is_allowed = True
+                break
+        elif isinstance(allowed_host, str) and host == allowed_host:
+            # Para dominios exactos
+            is_allowed = True
+            break
+    
+    if not is_allowed:
         raise DestinationRejected("Destino no autorizado")
     try:
         literal = ipaddress.ip_address(host)
@@ -42,12 +55,12 @@ def guard_url(url: str, settings: Settings) -> tuple[str, str]:
     return pinned_url, host
 
 
-async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTransport | None = None,
+async def fetch(url: str, method: str, use_js: bool, settings: Settings, transport: httpx.AsyncBaseTransport | None = None,
                 cookie_header: str = "", on_set_cookie: Callable[[list[str]], None] | None = None) -> dict:
     pinned_url, host = guard_url(url, settings)
     started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(transport=transport, timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False) as client:
             headers = {"Host": host}
             if cookie_header:
                 headers["Cookie"] = cookie_header
@@ -79,3 +92,50 @@ async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTranspor
                 await response.aclose()
     except httpx.HTTPError as exc:
         return {"success": False, "status_code": None, "error": {"type": "transport_error", "message": str(exc)}, "validation": {"content_expected": False, "challenge_detected": False}}
+
+
+async def fetch_js(request) -> dict:
+    try:
+        # Try to use invisible-playwright first for bypassing anti-bots
+        try:
+            from invisible_playwright import async_playwright
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                await page.goto(request.url)
+                content = await page.content()
+                await browser.close()
+                return {
+                    "status": 200,
+                    "headers": {},
+                    "body": content,
+                    "url": request.url,
+                    "method": "js",
+                    "error": None
+                }
+        except ImportError:
+            # Fallback to regular Playwright if invisible-playwright is not available
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                await page.goto(request.url)
+                content = await page.content()
+                await browser.close()
+                return {
+                    "status": 200,
+                    "headers": {},
+                    "body": content,
+                    "url": request.url,
+                    "method": "js",
+                    "error": None
+        }
+    except Exception as e:
+        return {
+            "status": 500,
+            "headers": {},
+            "body": "",
+            "url": request.url,
+            "method": "js",
+            "error": str(e)
+        }

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scraping-panel"
+version = "0.1.0"
+description = "Panel de scraping con proxies Decodo"
+readme = "README.md"
+authors = [
+    {name = "Tu Nombre", email = "tu.email@ejemplo.com"},
+]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.25.1",
+    "beautifulsoup4>=4.9.3",
+    "lxml>=4.6.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.2.1",
+    "black>=21.5b0",
+    "flake8>=3.8.4",
+]
+
+[project.scripts]
+scraping-panel = "server:run_server"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scraping_panel*"]

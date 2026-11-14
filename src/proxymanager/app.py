@@ -4,7 +4,7 @@ from typing import Literal
 import uuid
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from .config import Settings
@@ -129,6 +129,46 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {"request_id": "req_" + uuid.uuid4().hex, "session_id": request.session_id, **result}
+
+    # Inicializar configuración
+    settings = Settings.from_env()
+
+    @app.get("/health")
+    async def health():
+        return {"status": "healthy", "service": "ProxyManager"}
+
+    @app.post("/scrape")
+    async def scrape(request: ScrapeRequest, background_tasks: BackgroundTasks, session_id: str | None = Header(None)):
+        transport = httpx.AsyncHTTPTransport(retries=3)
+        cookie_header = None
+        on_set_cookie = None
+
+        if request.session_id:
+            # Recuperar cookies de la sesión
+            cookie_header = await session_store.get(request.session_id)
+            on_set_cookie = lambda cookie: background_tasks.add_task(session_store.set, request.session_id, cookie)
+
+        try:
+            result = await fetch(request.url, settings, transport, cookie_header, on_set_cookie)
+        except DestinationRejected as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"request_id": "req_" + uuid.uuid4().hex, "session_id": request.session_id, **result}
+
+    # Middleware para autenticación
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        api_key = request.headers.get("X-API-Key")
+        if not api_key:
+            return Response(content="Unauthorized", status_code=401)
+        
+        settings = Settings.from_env()
+        if api_key != settings.evaluator_key and api_key != settings.admin_key:
+            return Response(content="Unauthorized", status_code=401)
+        
+        response = await call_next(request)
+        return response
 
     return app
 
