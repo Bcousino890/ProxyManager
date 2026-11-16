@@ -2,6 +2,54 @@
 
 Todo se prueba **solo contra destinos propios o autorizados**.
 
+## 0. Antes del VPS: pruébalo en tu propio Mac/PC (sin Docker)
+
+No uses `deploy/docker-compose.yml` para esto: ese monta Caddy con HTTPS público (Let's Encrypt),
+que necesita una IP y un dominio accesibles desde Internet, y tu máquina local normalmente no los
+tiene. Para probar en local basta con Python, tal como en el quickstart del `README.md`:
+
+```bash
+git clone https://github.com/Bcousino890/ProxyManager   # si aún no la tienes clonada
+cd ProxyManager
+python3 -m venv .venv && .venv/bin/pip install -e '.[test]'
+cp .env.example .env
+```
+
+Edita `.env`: pon `PROXYMANAGER_ADMIN_KEY` (algo largo), genera
+`PROXYMANAGER_CREDENTIAL_KEY` con `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`,
+y añade `PROXYMANAGER_COOKIE_SECURE=false` (solo en local, por HTTP) y
+`PROXYMANAGER_ALLOW_ANY_PUBLIC_HOST=true` si quieres probar contra cualquier sitio público.
+
+```bash
+set -a; source .env; set +a
+.venv/bin/pytest -q                          # 49 passed, sin red
+.venv/bin/python -m proxymanager.doctor      # corrige cualquier [ERROR]
+.venv/bin/uvicorn proxymanager.app:app --port 8000 &
+.venv/bin/python -m proxymanager.smoke --base-url http://127.0.0.1:8000 \
+  --target https://example.com/ --expected-text "Example Domain"
+```
+
+Abre en el navegador: `http://127.0.0.1:8000/app/` (consola), `http://127.0.0.1:8000/admin/`
+(panel), `http://127.0.0.1:8000/docs/` (documentación).
+
+Si quieres probar también `ddguard` localmente: en un Mac/PC con pantalla **no hace falta
+Xvfb/noVNC** (eso es solo para un VPS sin pantalla) — `headless=False` abre una ventana de
+navegador de verdad en tu propia pantalla:
+
+```bash
+.venv/bin/pip install -e '.[ddguard]'
+.venv/bin/python -m camoufox fetch
+export PROXYMANAGER_CHALLENGE_HANDLER=integrations.ddguard_handler:build_handler
+export DDGUARD_HEADLESS=false
+```
+
+Sigue sin activarse nada en `/scrape` hasta declarar la autorización en `/admin/` → *Desafíos*
+(ver `docs/extending-challenge-handlers.md`); eso aplica igual en local que en el VPS.
+
+Cuando todo esto funcione en tu máquina, repite los mismos pasos de configuración (mismas
+variables de `.env`) en el VPS siguiendo `deploy/README.md`, que sí usa Docker y Caddy porque ahí
+sí hay una IP pública para el dominio `sslip.io`.
+
 ## 1. Diagnóstico de configuración
 ```bash
 set -a; source .env; set +a
