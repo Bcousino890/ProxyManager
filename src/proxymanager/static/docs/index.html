@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentación · ProxyManager API</title>
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<div class="wrap">
+<aside>
+  <a class="brand" href="/docs/">ProxyManager</a>
+  <div class="grp">Empezar</div>
+  <a class="l" href="#introduccion">Introducción</a>
+  <a class="l" href="#inicio-rapido">Inicio rápido</a>
+  <a class="l" href="#autenticacion">Autenticación</a>
+  <div class="grp">API</div>
+  <a class="l" href="#scrape">POST /scrape</a>
+  <a class="l" href="#respuesta">Respuesta y éxito</a>
+  <a class="l" href="#sesiones">Sesiones y cookies</a>
+  <a class="l" href="#proxies">Proxies y país</a>
+  <div class="grp">Operación</div>
+  <a class="l" href="#creditos">Créditos y facturación</a>
+  <a class="l" href="#limites">Límites</a>
+  <a class="l" href="#registro">Registro de solicitudes</a>
+  <a class="l" href="#errores">Errores</a>
+  <a class="l" href="#ejemplos">Ejemplos</a>
+  <a class="l" href="#uso-aceptable">Uso aceptable</a>
+  <a class="l" href="#alcance">Qué no hace</a>
+  <div class="grp">Enlaces</div>
+  <a class="l" href="/app/">Consola</a>
+  <a class="l" href="/api-reference">Referencia OpenAPI</a>
+</aside>
+<main>
+<h1>ProxyManager API</h1>
+<p>API HTTP para obtener páginas web desde un servicio gestionado: una sola llamada a <code>/scrape</code> devuelve el estado, las cabeceras y el cuerpo de la respuesta, con validación del contenido, sesiones con cookies persistentes y enrutado opcional por un catálogo de proxies propio.</p>
+<p><a class="cta" href="/app/">Abrir la consola</a></p>
+
+<h2 id="introduccion">Introducción</h2>
+<p>ProxyManager hace la petición por ti desde nuestra infraestructura y te devuelve un resultado <strong>validado</strong>: no basta con un HTTP 200. Una respuesta solo se marca como correcta si el código es 2xx, no contiene marcadores de desafío (CAPTCHA, página de bloqueo) y, si lo indicas, incluye el texto que esperabas. Solo las respuestas validadas consumen créditos.</p>
+<ul>
+<li><strong>Una URL, una llamada:</strong> <code>POST /scrape</code> con JSON.</li>
+<li><strong>Sesiones:</strong> cookies cifradas y aisladas por cuenta, reutilizables entre llamadas.</li>
+<li><strong>Proxies:</strong> enrutado opcional por país mediante el catálogo del servicio.</li>
+<li><strong>Control de gasto:</strong> varias claves por cuenta, cada una con límite propio de créditos.</li>
+</ul>
+
+<h2 id="inicio-rapido">Inicio rápido</h2>
+<ol>
+<li>Crea una cuenta en la <a href="/app/">consola</a>. Se incluyen créditos de prueba y una clave por defecto: cópiala al crearla, no se vuelve a mostrar completa.</li>
+<li>Llama a la API con la clave en la cabecera <code>x-api-key</code>:</li>
+</ol>
+<pre><code>curl -X POST 'https://TU-DOMINIO/scrape' \
+  -H 'x-api-key: TU_CLAVE_API' \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/","method":"GET"}'</code></pre>
+<p>Cambia <code>TU-DOMINIO</code> por el dominio donde se aloja este servicio (el mismo que ves en la barra de direcciones).</p>
+
+<h2 id="autenticacion">Autenticación</h2>
+<p>Envía tu clave en la cabecera <code>x-api-key</code>. Las claves empiezan por <code>pm_live_</code>. Se guardan únicamente como hash SHA-256, de modo que ni el servicio puede recuperarlas: si pierdes una, revócala y crea otra. Usa una clave por entorno (desarrollo, producción, CI) y mantenlas solo en el servidor, nunca en código de navegador o aplicaciones móviles.</p>
+<p>Sin clave o con una clave inválida/revocada, la API responde <code>401</code>.</p>
+
+<h2 id="scrape">POST /scrape</h2>
+<p>Cuerpo JSON:</p>
+<table>
+<tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr>
+<tr><td><code>url</code></td><td>string, obligatorio</td><td>URL <code>https</code> en el puerto 443, sin usuario/contraseña ni fragmento. Debe resolver a una dirección pública.</td></tr>
+<tr><td><code>method</code></td><td>string</td><td><code>GET</code> (por defecto), <code>POST</code>, <code>PUT</code>, <code>PATCH</code>, <code>DELETE</code> o <code>HEAD</code>.</td></tr>
+<tr><td><code>headers</code></td><td>objeto</td><td>Cabeceras de la petición saliente. Máximo 30 y 8 KB. Se ignoran <code>Host</code>, <code>Content-Length</code>, <code>Proxy-Authorization</code> y otras cabeceras de conexión.</td></tr>
+<tr><td><code>body</code></td><td>string</td><td>Cuerpo de la petición (hasta 1 MB).</td></tr>
+<tr><td><code>expected_text</code></td><td>string</td><td>Texto que debe aparecer en la respuesta para considerarla correcta.</td></tr>
+<tr><td><code>session_id</code></td><td>string</td><td>Sesión creada con <code>POST /v1/sessions</code>. Ver <a href="#sesiones">Sesiones</a>.</td></tr>
+<tr><td><code>use_proxy</code></td><td>bool</td><td>Enruta por un proxy del catálogo.</td></tr>
+<tr><td><code>country</code></td><td>string (2)</td><td>Código de país del proxy, p. ej. <code>ES</code>. Implica <code>use_proxy</code>.</td></tr>
+<tr><td><code>solve_challenges</code></td><td>bool</td><td>Pide al servicio que intente gestionar un desafío detectado. <strong>Solo tiene efecto si el operador conectó un manejador y además declaró y activó su autorización</strong>; en caso contrario se ignora y el desafío se informa en <code>challenge</code> (con <code>pending_authorization: true</code> si falta la declaración).</td></tr>
+</table>
+<p>Las redirecciones <strong>no se siguen</strong>: recibes el <code>3xx</code> y su cabecera <code>Location</code> y decides tú.</p>
+
+<h2 id="respuesta">Respuesta y definición de éxito</h2>
+<pre><code>{
+  "request_id": "req_9c1e…",
+  "session_id": null,
+  "success": true,
+  "status_code": 200,
+  "content_type": "text/html; charset=utf-8",
+  "duration_ms": 412.7,
+  "bytes_transferred": 18342,
+  "credits_charged": 1,
+  "validation": { "content_expected": true, "challenge_detected": false },
+  "headers": { "content-type": "text/html; charset=utf-8" },
+  "html": "&lt;!doctype html&gt;…"
+}</code></pre>
+<p>El propio <code>/scrape</code> responde <code>200</code> cuando procesó tu petición; el resultado del destino está en <code>status_code</code> y <code>success</code>.</p>
+<p><code>success</code> es <code>true</code> solo si se cumplen las tres condiciones: <strong>(1)</strong> el destino respondió 2xx, <strong>(2)</strong> <code>expected_text</code> aparece en el cuerpo (si lo indicaste, o si el administrador fijó uno global) y <strong>(3)</strong> no se detectó ningún marcador de desafío.</p>
+<div class="note">La detección de desafíos es una heurística de texto (busca términos como «captcha» o «device check»). Puede dar falsos positivos en páginas que simplemente mencionen esas palabras: en ese caso la respuesta llega igualmente con <code>html</code> y <code>validation.challenge_detected = true</code>, y no se cobra. Usa <code>expected_text</code> para afinar.</div>
+<p><code>bytes_transferred</code> mide los bytes de contenido recibidos, no el tráfico de red comprimido. Los errores de transporte (DNS, conexión, tiempo agotado) devuelven <code>success: false</code> y un objeto <code>error</code>. El cuerpo se limita al tamaño máximo configurado; si lo supera, la API devuelve <code>502</code>.</p>
+
+<h2 id="sesiones">Sesiones y cookies</h2>
+<p>Una sesión agrupa cookies entre varias llamadas, por ejemplo para un flujo de inicio de sesión sobre un sitio donde tienes cuenta y autorización.</p>
+<pre><code># 1) crear sesión (caduca a la hora por defecto)
+curl -X POST https://TU-DOMINIO/v1/sessions -H 'x-api-key: TU_CLAVE_API'
+# → {"session_id":"ses_…","created_at":…,"expires_at":…}
+
+# 2) usarla
+curl -X POST https://TU-DOMINIO/scrape -H 'x-api-key: TU_CLAVE_API' -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/login","session_id":"ses_…"}'
+
+# 3) borrarla (purga sus cookies)
+curl -X DELETE https://TU-DOMINIO/v1/sessions/ses_… -H 'x-api-key: TU_CLAVE_API'</code></pre>
+<ul>
+<li>Los valores de <code>Set-Cookie</code> se guardan <strong>cifrados</strong> y no se devuelven en las respuestas.</li>
+<li>Se reenvían solo a los hosts, rutas y esquemas que el atributo <code>Domain</code>/<code>Path</code>/<code>Secure</code> permite; <code>Max-Age=0</code> o una fecha pasada la eliminan.</li>
+<li>Una sesión pertenece a tu cuenta: otra cuenta recibe <code>404</code> al usar tu <code>session_id</code>.</li>
+<li>Tener una cookie no garantiza que el servidor la acepte indefinidamente: puede caducar o invalidarla en cualquier momento.</li>
+</ul>
+
+<h2 id="proxies">Proxies y país</h2>
+<p><code>use_proxy: true</code> o <code>country</code> enrutan la petición por un proxy HTTP del catálogo del servicio (elegido al azar entre los activos que cumplan el país y no hayan fallado recientemente; se prefieren los que superaron una comprobación). Con <code>session_id</code> se mantiene el mismo proxy durante la sesión mientras siga sano; si el proxy falla por transporte, se reintenta una vez con otro. La respuesta incluye <code>proxy_id</code>. El túnel se abre hacia la IP pública ya comprobada del destino y el certificado TLS se verifica contra el nombre original. Si no hay ningún proxy sano disponible para la petición recibes <code>422</code>.</p>
+<div class="note">El tipo de red de cada proxy (ISP, residencial, centro de datos) y su país se publican tal como los verificó el administrador; hasta que se verifiquen figuran como desconocidos. No se ofrece rotación para esquivar límites o bloqueos de terceros.</div>
+
+<h2 id="creditos">Créditos y facturación</h2>
+<table>
+<tr><th>Concepto</th><th>Coste</th></tr>
+<tr><td>Solicitud directa validada</td><td>1 crédito (configurable por el administrador)</td></tr>
+<tr><td>Solicitud validada por proxy</td><td>2 créditos (configurable)</td></tr>
+<tr><td>Solicitud no validada (desafío, error, contenido distinto)</td><td>0 créditos</td></tr>
+</table>
+<p>Si no quedan créditos, la API responde <code>402</code>. Puedes fijar un <strong>límite de créditos por clave</strong> en la consola para evitar que un entorno agote la cuenta; al alcanzarlo, esa clave recibe <code>402</code>. El consumo detallado se ve en <em>Uso</em>. Las recargas las gestiona el administrador del servicio (todavía no hay pasarela de pago en línea).</p>
+
+<h2 id="limites">Límites</h2>
+<table>
+<tr><th>Límite</th><th>Valor por defecto</th></tr>
+<tr><td>Solicitudes por minuto y clave</td><td>60 (HTTP <code>429</code> con <code>Retry-After</code>)</td></tr>
+<tr><td>Claves activas por cuenta</td><td>10</td></tr>
+<tr><td>Tamaño máximo de respuesta / cuerpo</td><td>1 MB</td></tr>
+<tr><td>Tiempo de espera hacia el destino</td><td>15 s</td></tr>
+<tr><td>Duración de una sesión</td><td>1 hora</td></tr>
+</table>
+<p>Configura un cliente con tiempo de espera propio de al menos 30 s.</p>
+
+<h2 id="registro">Registro de solicitudes</h2>
+<p>En la consola, <em>Uso</em> → <em>Registro de solicitudes</em> clasifica cada llamada en una de cuatro categorías, con filtro por periodo y por resultado:</p>
+<table>
+<tr><th>Categoría</th><th>Significa</th></tr>
+<tr><td>Entregada</td><td><code>success: true</code>: 2xx, sin desafío y con el texto esperado si lo pediste.</td></tr>
+<tr><td>Bloqueada</td><td>El destino respondió con un marcador de desafío (<code>validation.challenge_detected</code>).</td></tr>
+<tr><td>Error del sitio</td><td>El destino respondió, pero no 2xx o sin el texto esperado.</td></tr>
+<tr><td>No se pudo conectar</td><td>Error de transporte: nunca hubo respuesta (DNS, conexión, tiempo agotado).</td></tr>
+</table>
+<p>Una solicitud rechazada antes de intentar el destino (URL no autorizada, sin créditos, límite de tasa) no aparece aquí: el error llega directo en la respuesta de <code>/scrape</code>, sin cobro.</p>
+
+<h2 id="errores">Errores</h2>
+<table>
+<tr><th>HTTP</th><th>Significado</th></tr>
+<tr><td><code>401</code></td><td>Clave ausente, inválida o revocada.</td></tr>
+<tr><td><code>402</code></td><td>Créditos de la cuenta agotados o límite de la clave alcanzado.</td></tr>
+<tr><td><code>404</code></td><td><code>session_id</code> inexistente, caducado o de otra cuenta.</td></tr>
+<tr><td><code>413</code></td><td>Cuerpo de la petición demasiado grande.</td></tr>
+<tr><td><code>422</code></td><td>URL no permitida (no https, puerto distinto, IP privada, host bloqueado), cabeceras inválidas o sin proxy disponible.</td></tr>
+<tr><td><code>429</code></td><td>Demasiadas solicitudes por minuto.</td></tr>
+<tr><td><code>502</code></td><td>Respuesta del destino mayor que el límite.</td></tr>
+<tr><td><code>503</code></td><td>Servicio sin clave de cifrado configurada (necesaria para sesiones).</td></tr>
+</table>
+<p>Los errores llevan <code>{"detail": "…"}</code>.</p>
+
+<h2 id="ejemplos">Ejemplos</h2>
+<h3>Python</h3>
+<pre><code>import requests
+
+r = requests.post(
+    "https://TU-DOMINIO/scrape",
+    headers={"x-api-key": "TU_CLAVE_API"},
+    json={"url": "https://example.com/", "expected_text": "Example Domain"},
+    timeout=60,
+)
+data = r.json()
+if data["success"]:
+    print(data["html"][:200])
+else:
+    print("no validado:", data["status_code"], data["validation"])</code></pre>
+<h3>Node.js</h3>
+<pre><code>const res = await fetch("https://TU-DOMINIO/scrape", {
+  method: "POST",
+  headers: { "x-api-key": process.env.PROXYMANAGER_API_KEY, "content-type": "application/json" },
+  body: JSON.stringify({ url: "https://example.com/", country: "ES" }),
+});
+const data = await res.json();
+console.log(data.success, data.status_code);</code></pre>
+<h3>POST con cuerpo y cabeceras</h3>
+<pre><code>curl -X POST https://TU-DOMINIO/scrape -H 'x-api-key: TU_CLAVE_API' -H 'content-type: application/json' \
+  -d '{"url":"https://api.example.com/search","method":"POST","headers":{"content-type":"application/json"},"body":"{\"q\":\"zapatos\"}"}'</code></pre>
+
+<h2 id="uso-aceptable">Uso aceptable</h2>
+<p>Al usar la API aceptas hacerlo solo contra sitios propios o sobre los que tengas autorización, respetando sus condiciones, <code>robots.txt</code> y límites. Queda prohibido: acceder a datos personales o cuentas ajenas, saturar destinos, usar el servicio para eludir controles de acceso o medidas de seguridad de terceros, o atacar redes privadas. El servicio rechaza direcciones privadas o reservadas y puede bloquear destinos y suspender claves que incumplan esta política.</p>
+
+<h2 id="alcance">Qué no hace</h2>
+<ul>
+<li><strong>No resuelve CAPTCHA ni supera sistemas antibot por defecto.</strong> Detecta marcadores de desafío y lo informa en <code>validation</code> y <code>challenge</code>; no se cobra esa solicitud. Existe un punto de extensión opcional (<code>solve_challenges</code>) que el operador puede conectar; consulta con él si está activo.</li>
+<li>No renderiza JavaScript ni abre un navegador: es un cliente HTTP.</li>
+<li>No sigue redirecciones automáticamente.</li>
+<li>No garantiza disponibilidad contractual: el servicio es nuevo y no tiene aún un historial de operación publicado.</li>
+</ul>
+</main>
+</div>
+</body>
+</html>

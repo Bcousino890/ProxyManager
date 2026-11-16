@@ -72,6 +72,23 @@ class ProxyHealth:
             with sqlite3.connect(self.store.db_path) as db:
                 db.execute('UPDATE proxy_checks SET state=?, result=? WHERE id=?', ('completed', json.dumps(result), job_id))
 
+    def record(self, proxy_id, success, target=""):
+        """Resultado pasivo de una solicitud real; un fallo de transporte aparta el proxy hasta que caduque el TTL."""
+        result = {"success": success} if success else {"success": False, "error": {"type": "transport_error"}}
+        with sqlite3.connect(self.store.db_path) as db:
+            db.execute('INSERT INTO proxy_checks (id, proxy_id, created, state, result, target) VALUES (?, ?, ?, ?, ?, ?)', (uuid.uuid4().hex, proxy_id, time.time(), 'completed', json.dumps(result), target))
+
+    async def sweep(self):
+        """Comprueba todos los proxies activos contra settings.health_url (destino autorizado)."""
+        for proxy in self.store.list():
+            if not proxy["enabled"]:
+                continue
+            try:
+                job = self.queue(proxy["id"], self.settings.health_url)
+                await self.run(job, self.settings.health_url, self.connection(proxy["id"]))
+            except Exception:
+                continue
+
     def history(self, proxy_id):
         with sqlite3.connect(self.store.db_path) as db:
             rows = db.execute('SELECT id, created, state, result, target FROM proxy_checks WHERE proxy_id=? ORDER BY created DESC LIMIT 100', (proxy_id,)).fetchall()

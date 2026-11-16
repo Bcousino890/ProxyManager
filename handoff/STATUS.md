@@ -58,3 +58,69 @@ Se comprobó también la tabla oficial de EC2 Spot en vivo (11 noviembre 2026): 
 ## Avance: cookies de sesión persistentes
 
 Se añadió `CookieStore`: valores `Set-Cookie` cifrados con Fernet en SQLite, asociados a sesión y propietario. `/scrape` con `session_id` envía las cookies compatibles con host, dominio, ruta, HTTPS y caducidad; `Max-Age=0` las elimina y borrar la sesión purga sus cookies. Los atributos `HttpOnly` y `SameSite` se guardan como metadatos. Sin clave de cifrado, el uso de sesión HTTP devuelve 503 para evitar almacenamiento en claro. Pruebas locales con transporte simulado: `python3 -m pytest -q` → **22 passed** (11 noviembre 2026). No se ha probado aún con un servicio externo ni con DataDome real.
+
+## Avance (16 noviembre 2026): plataforma de cliente para vender la API
+
+Implementado: cuentas con contraseña scrypt y sesión web por cookie `HttpOnly` + cabecera `X-PM-CSRF`; claves `pm_live_…` por cliente (solo hash SHA-256, límite de créditos por clave, revocación, máximo 10); créditos por solicitud **validada** (1 directa / 2 por proxy, configurable; las no validadas no cuestan); registro de uso; límite de 60 solicitudes/min por clave y límite de intentos de login/alta; `/scrape` acepta `method`, `headers`, `body`, `expected_text`, `use_proxy`, `country` y devuelve `headers`; enrutado por proxy del catálogo (`ProxyStore.pick`); `GET/POST /v1/admin/*` para listar usuarios y conceder créditos; cabeceras de seguridad y CSP; consola SPA en `/app/` (resumen, claves, Playground, uso, cuenta, suscripción, apoyo); documentación en `/docs/`; OpenAPI movido a `/api-reference`; `deploy/` con Caddy + Docker Compose para un dominio `*.sslip.io`.
+
+Probado: `.venv/bin/pytest -q` → **37 passed** (16 nov 2026; 15 nuevos en `tests/test_accounts.py`, transporte simulado). Consola comprobada con Chromium (alta, clave visible una vez, Playground, docs) contra un servidor local. El Playground hacia Internet falló aquí por el proxy TLS del sandbox (`CERTIFICATE_VERIFY_FAILED`); no se desactivó la verificación, así que **no hay evidencia de una petición real de éxito** fuera de los tests.
+
+No hecho / pendiente: despliegue (no hay VPS ni IP, no se contrató nada); pasarela de pago (las recargas son manuales vía `/v1/admin/credits`); verificación de correo y recuperación de contraseña; rate limit y cola en memoria (un solo proceso); selección de proxy sin salud ni sticky; tipo/país de proxies siguen `unknown`; política de uso aceptable y términos legales sin revisar por el propietario; `PROXYMANAGER_ALLOW_ANY_PUBLIC_HOST` desactivado por defecto; sin DataDome real ni benchmark. No exponer públicamente hasta pasar una revisión de seguridad.
+
+## Avance (16 noviembre 2026): panel de administración `/admin/`
+
+Panel con la clave `PROXYMANAGER_ADMIN_KEY` (guardada solo en `sessionStorage`): resumen, catálogo de proxies (añadir, importar lote `host:puerto:usuario:contraseña`, tipo, país, activar/desactivar, eliminar, lanzar comprobación con una URL autorizada, última comprobación) y clientes (listado y concesión de créditos). Nuevos endpoints de administración: `PATCH/DELETE /v1/proxies/{id}`, `POST /v1/proxies/import`, `GET /v1/admin/stats`. Los proxies desactivados no se eligen en `/scrape`. Probado: `pytest -q` → **39 passed**; capturas con Chromium usando datos de demostración en una base temporal. Pendiente: la clave de administración única no es un login con usuarios/2FA; añadir auditoría de acciones de administración.
+
+## Avance (16 noviembre 2026): salud de proxies en `/scrape` y gancho de desafíos
+
+- Selección: activos, sin fallo en los últimos `PROXYMANAGER_HEALTH_TTL_SECONDS`, prefiriendo los que superaron una comprobación. Fallos de transporte reales se registran (comprobación pasiva) y apartan el proxy; un éxito lo rehabilita. Un reintento con otro proxy. IP fija por `session_id` (tabla `session_proxy`, purgada al borrar la sesión). Barrido periódico opcional con `PROXYMANAGER_HEALTH_URL` + `PROXYMANAGER_HEALTH_INTERVAL_SECONDS`. Sin proxies sanos: 422.
+- `src/proxymanager/challenges.py`: interfaz `ChallengeHandler`, sin implementación; ver `docs/extending-challenge-handlers.md`. Respuesta incluye `challenge` y `proxy_id`.
+- Probado: `pytest -q` → **45 passed** (transporte simulado). No probado con proxies reales ni barrido periódico en vivo; la selección no distingue fallos del destino de fallos del proxy salvo por error de transporte.
+
+## Avance (16 noviembre 2026): herramientas para pruebas reales
+
+- `python -m proxymanager.doctor` (diagnóstico de configuración), `python -m proxymanager.smoke` (prueba de humo de un despliegue: salud, páginas, alta, 401, scrape directo, scrape por proxy con IP fija), `python -m proxymanager.handlercheck` (probar un manejador sin servidor). Plantilla en `examples/handler_template.py`; en Docker, `deploy/handlers/` montado en `/handlers`. Guía: `docs/real-testing.md`.
+- `PROXYMANAGER_CA_BUNDLE` permite una CA propia manteniendo la verificación TLS (necesario en este sandbox, cuyo proxy intercepta TLS).
+- Corregido: `load_handler` no instanciaba clases.
+- **Evidencia real (16 nov 2026, sandbox):** servidor local + `smoke` contra `https://example.com/` con `expected_text` → HTTP 200 validado, 1 crédito, 75 ms, TLS verificado. `pytest -q` → **48 passed**. `docker compose config` válido; **la imagen Docker no se pudo construir aquí (sin daemon)**.
+- Sin probar: proxies reales (las 10 conexiones del propietario solo existen en su máquina), despliegue en VPS, HTTPS con sslip.io/Let's Encrypt, DataDome.
+
+## Avance (16 noviembre 2026): manejador de desafíos conectado (Idealista), con activación declarada
+
+- El material que el programador subió (`ddguard`: `curl_cffi` + Camoufox contra DataDome de Idealista) está integrado en `integrations/ddguard/` y adaptado al contrato de `challenges.py` en `integrations/ddguard_handler.py`. El adaptador solo actúa sobre `idealista.com`/subdominios; para cualquier otro host devuelve `None` sin crear sesión ni red (comprobado).
+- **Doble llave antes de que dispare una sola solicitud real:** (1) el operador configura `PROXYMANAGER_CHALLENGE_HANDLER` e instala `pip install -e '.[ddguard]'`; (2) en `/admin/` → *Desafíos*, alguien declara **quién autorizó** y una **referencia verificable**, lo que queda registrado con fecha en `challenge_authorization`/`challenge_authorization_log` (nueva tabla, `src/proxymanager/authorization.py`). Sin esa declaración activa, `/scrape` nunca invoca el manejador aunque esté configurado (`challenge.pending_authorization: true`, sin cobro). El botón de desactivar no exige declaración.
+- Nuevos endpoints: `GET/POST /v1/admin/challenge-handler`, `POST …/enable`, `POST …/disable`.
+- **Lo que no hice:** no instalé Camoufox ni Playwright (solo `curl_cffi`, ligero, para validar que el adaptador importa y usa la API real sin tocar red), no ejecuté nada contra `idealista.com`, no until existe autorización real documentada en este momento. Probado: `pytest -q` → **49 passed**, incluida la ruta completa (configurado→no autorizado→autorizado→se dispara→se desactiva) con un manejador de prueba; capturas del panel `/admin/` → *Desafíos* con una declaración de ejemplo (inventada, no una autorización real).
+- Pendiente antes de usarlo de verdad: que exista la autorización de Idealista; instalar `camoufox fetch` en el VPS; `noVNC` para el slider del CAPTCHA (`integrations/ddguard/deploy/novnc-setup.sh`); probar `login`/`status` del CLI de ddguard.
+
+## Avance (16 noviembre 2026): despliegue en VPS documentado (carpeta aislada) y aclaración sobre ddguard
+
+- **El CAPTCHA deslizante de Idealista NO se resuelve en automático** con `ddguard` tal como está escrito: solo el "interstitial" se supera solo (~20-30 s). El deslizante necesita que una persona lo resuelva por noVNC (`captcha_mode="wait"`, confirmado leyendo `integrations/ddguard/solver.py::_wait_clear`: en modo sin pantalla falla directo en vez de intentarlo) o un servicio de pago no incluido (`captcha_mode="callback"`). Documentado en `docs/ddguard-vps.md` con el diagrama del flujo cliente→API→destino.
+- `deploy/README.md` reescrito: carpeta aislada `/opt/proxymanager/` en el VPS, `name: proxymanager` fijado en `docker-compose.yml` (contenedores/redes/volúmenes con ese prefijo, sin chocar con otros proyectos del mismo Docker), comprobación de puertos 80/443 antes de instalar, y una Opción B para convivir con un proxy inverso que ya exista en el VPS sin tocarlo.
+- `deploy/Dockerfile.ddguard` + `deploy/docker-compose.ddguard.yml` + `deploy/ddguard-entrypoint.sh`: imagen **separada y opcional** (no se construye por defecto) con Camoufox, Xvfb y noVNC dentro del propio contenedor; el puerto 6080 solo se publica en `127.0.0.1` del VPS (acceso por túnel SSH, nunca abierto a Internet). Sigue exigiendo la autorización declarada en `/admin/` → Desafíos para disparar.
+- **No construido ni probado:** no hay Docker daemon en este entorno (confirmado), así que `Dockerfile.ddguard` no se ha construido de verdad; puede faltar alguna dependencia de sistema para Camoufox que solo aparecerá al construir en el VPS real. `docker compose config` validó la sintaxis YAML de ambos archivos. `pytest -q` → **49 passed** (sin cambios de código de producto en este avance, solo documentación/infra de despliegue).
+
+## Avance (16 noviembre 2026): cuentas de administrador con nombre propio
+
+Antes solo existía una clave maestra compartida (`PROXYMANAGER_ADMIN_KEY`) para `/admin/`, sin registro de quién hizo qué. Ahora:
+
+- `AdminAccounts` (tabla `admin_users`/`admin_sessions`, mismo hash scrypt que los clientes): el primer administrador se crea una sola vez con `POST /v1/admin/register` (exige la clave maestra + nombre + correo + contraseña); a partir de ahí, solo un administrador ya logueado puede invitar a otros (`POST /v1/admin/team`), sin volver a pedir la clave maestra.
+- Login normal por correo/contraseña (`POST /v1/admin/login`, cookie `pm_admin_session`, HttpOnly). La clave maestra sigue funcionando siempre por cabecera `X-API-Key` (acceso de emergencia), y la consola ofrece ese camino alternativo.
+- `GET /v1/admin/me`, `GET/POST /v1/admin/team`, `DELETE /v1/admin/team/{id}` (no se puede eliminar a uno mismo). Pestaña *Equipo* en `/admin/` con esos datos.
+- **Bug real encontrado y corregido al probarlo:** `GET /v1/proxies` y otros endpoints usados por la consola de administración dependían de la autenticación antigua por cabecera (`authenticated`), que no reconocía la nueva sesión de administrador por cookie — la consola se quedaba atascada tras iniciar sesión. `authenticated` ahora acepta también la cookie de sesión de administrador.
+- Probado: `pytest -q` → **54 passed** (3 tests nuevos: arranque, invitación, bloqueo de autoeliminación, acceso con clave maestra, CSRF). Flujo completo repetido con Chromium contra un servidor real: registro del primer administrador, pestaña Equipo, invitar, cerrar sesión, iniciar sesión como el invitado, ver el equipo — confirmado por los logs del servidor además de las capturas.
+- Pendiente: recuperación de contraseña para administradores (no implementada, igual que para clientes); auditoría más fina de qué hizo cada administrador en el catálogo de proxies o en créditos (hoy solo se audita la autorización de desafíos).
+
+## Avance (16 noviembre 2026): registro del primer administrador sin clave maestra
+
+A petición del propietario, `POST /v1/admin/register` ya no exige `PROXYMANAGER_ADMIN_KEY`: el alta del primer administrador funciona como un registro normal (nombre, correo, contraseña). La única protección que queda es que **solo funciona una vez** — `admin_accounts.bootstrap()` lo rechaza (422) en cuanto ya existe un administrador; a partir de ahí hay que invitar desde Equipo con una sesión ya iniciada. `PROXYMANAGER_ADMIN_KEY` sigue funcionando igual que antes como acceso de emergencia por cabecera (`administrator`), sin cambios ahí.
+
+**Nota de seguridad para quien despliegue esto en un VPS real:** mientras no exista ningún administrador, cualquiera que llegue primero a `https://TU-DOMINIO/admin/` puede registrarse como el administrador. Crea el primer administrador **inmediatamente** después de desplegar, antes de anunciar o compartir la URL. Esto queda documentado aquí y en `deploy/README.md` pendiente de revisar con el propietario si quiere un gate adicional (p. ej. volver a pedir la clave para el primer registro) antes de producción.
+
+Probado: `pytest -q` → **54 passed** (ajustados los tests que antes mandaban `master_key`). Confirmado con Chromium: el formulario ya no pide la clave y tras registrarse entra directo al Resumen.
+
+## Avance (16 noviembre 2026): sin longitud mínima de contraseña
+
+A petición del propietario (fricción al probar en local), se quitó el mínimo de 10 caracteres en alta de cliente, alta/invitación de administrador y cambio de contraseña; solo se exige no vacía (1-200 caracteres). Probado: `pytest -q` → **54 passed** (test actualizado: contraseña vacía sigue rechazada, una corta ya se acepta).
+
+**Nota de seguridad:** esto facilita usar contraseñas débiles. Antes de un despliegue real conviene reconsiderar un mínimo razonable (o un medidor de fuerza en la consola), sobre todo para cuentas de administrador.

@@ -1,0 +1,37 @@
+# Imagen alternativa de la API con ddguard (Camoufox) y noVNC embebidos, para resolver a mano el
+# CAPTCHA deslizante de Idealista. Más pesada que la imagen normal (navegador incluido); solo
+# constrúyela si vas a activar ese manejador. No se usa por defecto (ver docker-compose.yml).
+FROM python:3.12-slim
+WORKDIR /app
+
+# Paquetes de sistema: Firefox/Camoufox necesita librerías gráficas aunque corra sin pantalla real;
+# Xvfb/x11vnc/websockify dan la pantalla virtual y el puente noVNC para que una persona vea el
+# navegador por el navegador de su propio ordenador y mueva el deslizante.
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    xvfb x11vnc websockify novnc fonts-liberation \
+    libgtk-3-0 libdbus-glib-1-2 libx11-xcb1 libxt6 libasound2 libnss3 libxss1 \
+    libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \
+    ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+COPY src ./src
+COPY integrations ./integrations
+RUN pip install --no-cache-dir -e '.[ddguard]'
+# Descarga el navegador Camoufox en tiempo de construcción (no en cada arranque del contenedor).
+RUN python -m camoufox fetch
+
+RUN useradd --create-home --uid 10001 appuser && mkdir -p /data /dd_sessions && chown appuser:appuser /data /dd_sessions
+ENV PROXYMANAGER_DB_PATH=/data/proxymanager.db \
+    DDGUARD_STORE_DIR=/dd_sessions \
+    DISPLAY=:99 \
+    PYTHONPATH=/app
+VOLUME ["/data", "/dd_sessions"]
+
+COPY deploy/ddguard-entrypoint.sh /usr/local/bin/ddguard-entrypoint.sh
+RUN chmod +x /usr/local/bin/ddguard-entrypoint.sh && chown -R appuser:appuser /app
+
+USER appuser
+EXPOSE 8000 6080
+ENTRYPOINT ["/usr/local/bin/ddguard-entrypoint.sh"]
+CMD ["uvicorn", "proxymanager.app:app", "--host", "0.0.0.0", "--port", "8000"]

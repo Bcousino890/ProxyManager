@@ -16,12 +16,13 @@ _COOKIE_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 
 class CookieStore:
-    def __init__(self, db_path: str, key: str, sessions: SessionStore, allowed_hosts: tuple[str, ...]):
+    def __init__(self, db_path: str, key: str, sessions: SessionStore, allowed_hosts: tuple[str, ...], allow_any: bool = False):
         self.db_path = db_path
         self.key = key
         self.cipher = Fernet(key.encode()) if key else None
         self.sessions = sessions
         self.allowed_hosts = set(allowed_hosts)
+        self.allow_any = allow_any
         with sqlite3.connect(db_path) as db:
             db.execute("""CREATE TABLE IF NOT EXISTS session_cookies (
                 session_id TEXT NOT NULL, name TEXT NOT NULL, domain TEXT NOT NULL,
@@ -31,6 +32,9 @@ class CookieStore:
                 PRIMARY KEY (session_id, name, domain, path)
             )""")
 
+    def _permitted(self, domain: str) -> bool:
+        return domain in self.allowed_hosts or (self.allow_any and "." in domain)
+
     def record(self, session_id: str, owner: str, url: str, headers: list[str]) -> None:
         session = self.sessions.get(session_id, owner)
         if session is None:
@@ -39,7 +43,7 @@ class CookieStore:
             raise ValueError("Configura PROXYMANAGER_CREDENTIAL_KEY para guardar cookies")
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower().rstrip(".")
-        if parsed.scheme != "https" or host not in self.allowed_hosts:
+        if parsed.scheme != "https" or not self._permitted(host):
             raise ValueError("Destino de cookie no autorizado")
         default_path = parsed.path.rsplit("/", 1)[0] or "/"
         now = time.time()
@@ -56,7 +60,7 @@ class CookieStore:
                         continue
                     raw_domain = morsel["domain"].lower().lstrip(".").rstrip(".")
                     domain = raw_domain or host
-                    if domain not in self.allowed_hosts or (host != domain and not host.endswith("." + domain)):
+                    if not self._permitted(domain) or (host != domain and not host.endswith("." + domain)):
                         continue
                     path = morsel["path"] if morsel["path"].startswith("/") else default_path
                     try:
@@ -85,7 +89,7 @@ class CookieStore:
             raise ValueError("Configura PROXYMANAGER_CREDENTIAL_KEY para usar cookies")
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower().rstrip(".")
-        if host not in self.allowed_hosts:
+        if not self._permitted(host):
             return ""
         request_path = parsed.path or "/"
         now = time.time()

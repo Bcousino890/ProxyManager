@@ -18,9 +18,13 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
+ddguard = ["curl_cffi>=0.16.3", "camoufox[geoip]>=0.4.11", "playwright>=1.48"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+proxymanager = ["static/**/*"]
