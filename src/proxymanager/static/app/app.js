@@ -139,30 +139,51 @@ const PAGES = {
     const expected = h("input", { placeholder: "Texto esperado en la respuesta (opcional)" });
     const headers = h("textarea", { placeholder: '{"Accept-Language": "es"}', "aria-label": "Cabeceras JSON" });
     const body = h("textarea", { placeholder: "Cuerpo de la solicitud (opcional)", "aria-label": "Cuerpo" });
+    const bodyType = h("select", { "aria-label": "Tipo de contenido del cuerpo" },
+      h("option", { value: "json" }, "JSON"), h("option", { value: "form" }, "Formulario (x-www-form-urlencoded)"),
+      h("option", { value: "text" }, "Texto"), h("option", { value: "custom" }, "Personalizado"));
+    const bodyTypeCustom = h("input", { placeholder: "tipo/subtipo, p. ej. application/xml", style: "display:none" });
+    bodyType.addEventListener("change", () => { bodyTypeCustom.style.display = bodyType.value === "custom" ? "" : "none"; });
+    const BODY_CONTENT_TYPES = { json: "application/json", form: "application/x-www-form-urlencoded", text: "text/plain" };
     const result = h("div", { class: "card" }, h("p", { class: "lead" }, "Tu respuesta aparecerá aquí."));
     const example = h("div");
+    const contentTypeFor = () => bodyType.value === "custom" ? bodyTypeCustom.value.trim() : BODY_CONTENT_TYPES[bodyType.value];
     const build = () => {
       const b = { url: url.value || "https://example.com/page", method: method.value };
       if (proxy.checked || country.value) { b.use_proxy = true; if (country.value) b.country = country.value.toUpperCase(); }
       if (expected.value) b.expected_text = expected.value;
+      if (body.value) {
+        b.body = body.value;
+        const ct = contentTypeFor();
+        if (ct) b.headers = { ...(b.headers || {}), "content-type": ct };
+      }
       return b;
     };
     const refresh = () => example.replaceChildren(codeTabs("TU_CLAVE_API", build()));
-    [url, method, proxy, country, expected].forEach(e => e.addEventListener("input", refresh));
+    [url, method, proxy, country, expected, body, bodyType, bodyTypeCustom].forEach(e => e.addEventListener("input", refresh));
     refresh();
     const run = h("button", { class: "primary", type: "submit" }, "Ejecutar");
+    const step = (icon, text) => h("div", { class: "row", style: "align-items:center;gap:8px" }, h("span", {}, icon), h("span", {}, text));
     const form = h("form", { class: "card", onsubmit: async e => {
       e.preventDefault(); run.disabled = true; run.textContent = "Ejecutando…";
-      const payload = build();
+      let extraHeaders = {};
       try {
-        if (headers.value.trim()) payload.headers = JSON.parse(headers.value);
+        if (headers.value.trim()) extraHeaders = JSON.parse(headers.value);
       } catch (_) { result.replaceChildren(h("div", { class: "notice bad" }, "Las cabeceras no son un JSON válido.")); run.disabled = false; run.textContent = "Ejecutar"; return; }
-      if (body.value) payload.body = body.value;
+      const payload = build();
+      if (Object.keys(extraHeaders).length) payload.headers = { ...(payload.headers || {}), ...extraHeaders };
+      const started = performance.now();
+      result.replaceChildren(h("div", { class: "card", style: "display:grid;gap:6px" }, step("●", "Enviando solicitud")));
       try {
         const r = await api("/v1/account/playground", { method: "POST", body: payload });
         me = await api("/v1/account/me"); updateFoot();
         const text = r.html || "";
+        const destHost = (() => { try { return new URL(payload.url).hostname; } catch (_) { return payload.url; } })();
         result.replaceChildren(
+          h("div", { class: "card", style: "display:grid;gap:6px;margin-bottom:12px" },
+            step("✓", "Enviando solicitud"),
+            step(r.success ? "✓" : "✗", `Descargando ${destHost}${r.duration_ms != null ? ` · ${Math.round(r.duration_ms)} ms` : ""}`),
+            step("✓", `Hecho · ${Math.round(performance.now() - started)} ms total · ${r.credits_charged ? r.credits_charged + " créditos" : "no facturado"}`)),
           h("div", { class: "row res", style: "align-items:center" },
             h("span", { class: "badge" + (r.success ? "" : " bad") }, r.success ? "Éxito" : "No validado"),
             r.status_code != null ? h("span", {}, "HTTP " + r.status_code) : h("span", { class: "err" }, (r.error && r.error.message) || "Error de transporte"),
@@ -173,13 +194,17 @@ const PAGES = {
           h("pre", { class: "code" }, JSON.stringify(r.headers || {}, null, 2)),
           h("pre", { class: "code", style: "margin-top:10px;max-height:420px" }, text.length > 20000 ? text.slice(0, 20000) + "\n… (recortado en el Playground)" : text || "(cuerpo vacío)"));
       } catch (x) {
-        result.replaceChildren(h("div", { class: "notice bad" }, x.message));
+        const hint = x.message === "Destino no autorizado"
+          ? h("p", { class: "muted", style: "margin-top:8px" }, "Si este destino debería estar permitido, revisa ", h("code", {}, "PROXYMANAGER_ALLOW_ANY_PUBLIC_HOST"), " o ", h("code", {}, "PROXYMANAGER_ALLOWED_HOSTS"), " en el ", h("code", {}, ".env"), " del servidor, vuelve a cargarlo con ", h("code", {}, "source .env"), " y reinicia el servidor antes de reintentar. Detalle en la ", h("a", { href: "/docs/" }, "documentación"), ".")
+          : null;
+        result.replaceChildren(h("div", { class: "notice bad" }, x.message), hint);
       }
       run.disabled = false; run.textContent = "Ejecutar";
     } },
       h("div", { class: "row" }, method, h("div", { style: "flex:4 1 280px" }, url), run),
       h("div", { class: "grid2", style: "margin-top:14px" },
-        h("div", { style: "display:grid;gap:10px" }, h("label", {}, "Cabeceras (JSON)", headers), h("label", {}, "Cuerpo", body)),
+        h("div", { style: "display:grid;gap:10px" }, h("label", {}, "Cabeceras (JSON)", headers),
+          h("label", {}, "Cuerpo", body, h("div", { class: "row", style: "margin-top:6px" }, bodyType, bodyTypeCustom))),
         h("div", { style: "display:grid;gap:10px;align-content:start" },
           h("label", { class: "toggle" }, proxy, "Usar proxy del catálogo"), country, expected)));
     return [h("p", { class: "lead" }, "Solo las solicitudes validadas consumen créditos. Las pruebas del Playground usan tus créditos."), form, result,
@@ -187,13 +212,45 @@ const PAGES = {
   }],
   usage: ["Uso", async () => {
     const u = await api("/v1/account/usage");
-    return [h("div", { class: "stats" },
+    let tab = "resumen";
+    const PERIODS = [["hour", "Última hora"], ["today", "Hoy"], ["7d", "7 días"], ["30d", "30 días"]];
+    const OUTCOMES = [["all", "Todas"], ["delivered", "Entregadas"], ["blocked", "Bloqueadas"], ["site_error", "Error del sitio"], ["not_reachable", "No se pudo conectar"]];
+    let period = "7d", outcome = "all";
+    const body = h("div");
+    const tabs = h("div", { class: "tabs" });
+    const renderTabs = () => tabs.replaceChildren(
+      h("button", { class: tab === "resumen" ? "on" : "", onclick: () => { tab = "resumen"; renderTabs(); renderBody(); } }, "Resumen"),
+      h("button", { class: tab === "log" ? "on" : "", onclick: () => { tab = "log"; renderTabs(); renderBody(); } }, "Registro de solicitudes"));
+    const summaryView = () => [h("div", { class: "stats" },
       stat("Solicitudes", fmt(u.requests), "últimos 30 días"), stat("Validadas", fmt(u.successful), ""), stat("Créditos", fmt(u.credits), ""), stat("Transferido", (u.bytes / 1048576).toFixed(2) + " MB", "contenido recibido")),
-      h("div", { class: "card" }, h("h2", {}, "Últimas 50 solicitudes"),
-        u.recent.length ? h("div", { class: "tablewrap" }, h("table", {},
-          h("thead", {}, h("tr", {}, ["Fecha", "Destino", "HTTP", "Resultado", "Créditos", "ms", "Clave"].map(t => h("th", {}, t)))),
-          h("tbody", {}, u.recent.map(r => h("tr", {}, h("td", {}, date(r.ts)), h("td", {}, r.host), h("td", {}, r.status_code ?? "—"),
-            h("td", {}, h("span", { class: "badge" + (r.success ? "" : " bad") }, r.success ? "Éxito" : "Fallo")), h("td", {}, r.credits), h("td", {}, r.duration_ms != null ? Math.round(r.duration_ms) : "—"), h("td", {}, r.key_name || "Playground")))))) : h("p", { class: "lead" }, "Sin actividad todavía."))];
+      h("div", { class: "card" }, h("h2", {}, "Solicitudes por día"),
+        u.daily.length ? h("div", { class: "chart", role: "img" }, u.daily.map(d => h("div", { style: `height:${Math.max(2, 100 * d.n / Math.max(1, ...u.daily.map(x => x.n)))}%`, title: `${d.day}: ${d.n}` }))) : h("p", { class: "lead" }, "Sin actividad todavía."))];
+    const logView = async () => {
+      const log = await api(`/v1/account/usage/log?period=${period}&outcome=${outcome}`);
+      const chip = (val, label, count) => h("button", { class: "small" + (outcome === val ? " on" : ""), onclick: () => { outcome = val; renderBody(); } }, label, count != null ? ` (${fmt(count)})` : "");
+      return [
+        h("div", { class: "row", style: "align-items:center;gap:8px" },
+          h("span", { class: "muted" }, "Periodo:"),
+          ...PERIODS.map(([val, label]) => h("button", { class: "small" + (period === val ? " on" : ""), onclick: () => { period = val; renderBody(); } }, label))),
+        h("div", { class: "row", style: "align-items:center;gap:8px;margin-top:6px" },
+          h("span", { class: "muted" }, "Resultado:"),
+          chip("all", "Todas", log.total), ...OUTCOMES.slice(1).map(([val, label]) => chip(val, label, log.counts[val]))),
+        h("div", { class: "card", style: "margin-top:14px" }, h("h2", {}, `Solicitudes · ${fmt(log.rows.length)} de ${fmt(log.total)}`),
+          log.rows.length ? h("div", { class: "tablewrap" }, h("table", {},
+            h("thead", {}, h("tr", {}, ["Fecha (UTC)", "Método", "Solicitud", "Resultado", "Tiempo", "Créditos", "Clave"].map(t => h("th", {}, t)))),
+            h("tbody", {}, log.rows.map(r => h("tr", {},
+              h("td", {}, date(r.ts)), h("td", {}, r.method),
+              h("td", {}, r.host + r.path, r.proxied ? " " : "", r.proxied ? h("span", { class: "badge" }, "proxy") : null),
+              h("td", {}, h("span", { class: "badge" + (r.outcome === "delivered" ? "" : " bad") }, { delivered: "Entregada", blocked: "Bloqueada", site_error: "Error del sitio", not_reachable: "No se pudo conectar" }[r.outcome] || r.outcome), r.status_code != null ? ` · HTTP ${r.status_code}` : ""),
+              h("td", {}, r.duration_ms != null ? (r.duration_ms / 1000).toFixed(2) + " s" : "—"),
+              h("td", {}, r.credits), h("td", {}, r.key_name || "Playground")))))) : h("p", { class: "lead" }, "Sin solicitudes en ese periodo y filtro."))];
+    };
+    const renderBody = async () => {
+      body.replaceChildren(h("p", { class: "lead" }, "Cargando…"));
+      body.replaceChildren(...(tab === "resumen" ? summaryView() : await logView()));
+    };
+    renderTabs(); await renderBody();
+    return [tabs, body];
   }],
   account: ["Cuenta", async () => {
     const cur = h("input", { type: "password", autocomplete: "current-password" });

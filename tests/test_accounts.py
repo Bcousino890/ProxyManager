@@ -338,3 +338,41 @@ def test_load_handler_spec():
     assert load_handler("proxymanager.challenges:NoopHandler").name == NoopHandler.name
     with pytest.raises(ValueError):
         load_handler("sin-formato")
+
+
+def test_usage_log_categorizes_outcomes(tmp_path, monkeypatch):
+    import socket
+
+    def fake_dns(host, port, type):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
+    monkeypatch.setattr(socket, "getaddrinfo", fake_dns)
+
+    def handler(request):
+        host = request.headers["host"]
+        if host == "down.example":
+            raise httpx.ConnectError("connection refused", request=request)
+        if host == "blocked.example":
+            return httpx.Response(403, text="please solve this captcha")
+        if host == "wrong.example":
+            return httpx.Response(200, text="contenido distinto")
+        return httpx.Response(200, text="hola")
+
+    settings = make(tmp_path, free_credits=50, allowed_hosts=("ok.example", "blocked.example", "wrong.example", "down.example"), allow_any_public_host=False, expected_text="")
+    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as c:
+        h = {"X-API-Key": signup(c)}
+        c.post("/scrape", headers=h, json={"url": "https://ok.example/a"})
+        c.post("/scrape", headers=h, json={"url": "https://blocked.example/b"})
+        c.post("/scrape", headers=h, json={"url": "https://wrong.example/c", "expected_text": "algo que no está"})
+        c.post("/scrape", headers=h, json={"url": "https://down.example/d"})
+        log = c.get("/v1/account/usage/log").json()
+        assert log["counts"] == {"delivered": 1, "blocked": 1, "site_error": 1, "not_reachable": 1}
+        assert log["total"] == 4
+        only_blocked = c.get("/v1/account/usage/log", params={"outcome": "blocked"}).json()
+        assert len(only_blocked["rows"]) == 1 and only_blocked["rows"][0]["host"] == "blocked.example" and only_blocked["rows"][0]["path"] == "/b"
+        hour = c.get("/v1/account/usage/log", params={"period": "hour"}).json()
+        assert hour["total"] == 4
+
+
+def test_usage_log_requires_web_session(tmp_path):
+    with TestClient(create_app(make(tmp_path))) as c:
+        assert c.get("/v1/account/usage/log").status_code == 401

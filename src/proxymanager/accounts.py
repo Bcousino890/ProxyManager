@@ -74,6 +74,13 @@ class Accounts:
                 duration_ms REAL, proxied INTEGER NOT NULL DEFAULT 0);
             CREATE INDEX IF NOT EXISTS usage_user_ts ON usage (user_id, ts);
             """)
+            columns = {r[1] for r in db.execute("PRAGMA table_info(usage)")}
+            if "outcome" not in columns:
+                db.execute("ALTER TABLE usage ADD COLUMN outcome TEXT NOT NULL DEFAULT 'delivered'")
+            if "path" not in columns:
+                db.execute("ALTER TABLE usage ADD COLUMN path TEXT NOT NULL DEFAULT ''")
+            if "method" not in columns:
+                db.execute("ALTER TABLE usage ADD COLUMN method TEXT NOT NULL DEFAULT 'GET'")
         if db_path != ":memory:":
             os.chmod(db_path, 0o600)
 
@@ -190,16 +197,19 @@ class Accounts:
                 return "Límite de créditos de la clave alcanzado"
         return None
 
-    def record_usage(self, user_id: str, key_id: str | None, host: str, status_code: int | None, success: bool, credits: int, nbytes: int, duration_ms: float | None, proxied: bool) -> None:
+    def record_usage(self, user_id: str, key_id: str | None, host: str, status_code: int | None, success: bool, credits: int,
+                      nbytes: int, duration_ms: float | None, proxied: bool, outcome: str = "delivered", path: str = "", method: str = "GET") -> None:
         now = time.time()
         credits = credits if success else 0
         with self._db() as db:
-            db.execute("INSERT INTO usage (user_id, key_id, ts, host, status_code, success, credits, bytes, duration_ms, proxied) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                       (user_id, key_id, now, host, status_code, int(success), credits, nbytes, duration_ms, int(proxied)))
+            db.execute("INSERT INTO usage (user_id, key_id, ts, host, status_code, success, credits, bytes, duration_ms, proxied, outcome, path, method) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (user_id, key_id, now, host, status_code, int(success), credits, nbytes, duration_ms, int(proxied), outcome, path, method))
             if credits:
                 db.execute("UPDATE users SET credits_used=credits_used+? WHERE id=?", (credits, user_id))
             if key_id:
                 db.execute("UPDATE api_keys SET credits_used=credits_used+?, last_used_at=? WHERE id=?", (credits, now, key_id))
+
+    OUTCOMES = ("delivered", "blocked", "site_error", "not_reachable")
 
     def usage_summary(self, user_id: str, days: int = 30) -> dict:
         since = time.time() - days * 86400
@@ -210,6 +220,30 @@ class Accounts:
         return {"days": days, "requests": totals["n"], "successful": totals["ok"], "credits": totals["credits"], "bytes": totals["bytes"],
                 "avg_duration_ms": round(totals["avg_ms"], 1) if totals["avg_ms"] is not None else None,
                 "daily": [dict(r) for r in daily], "recent": [dict(r) for r in recent]}
+
+    def usage_period_since(self, period: str) -> float:
+        now = time.time()
+        if period == "hour":
+            return now - 3600
+        if period == "today":
+            import datetime
+            local_midnight = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            return local_midnight.timestamp()
+        if period == "7d":
+            return now - 7 * 86400
+        return now - 30 * 86400  # "30d" y cualquier otro valor
+
+    def request_log(self, user_id: str, since: float, outcome: str | None, limit: int = 50) -> dict:
+        clauses, args = ["u.user_id=?", "u.ts>=?"], [user_id, since]
+        if outcome and outcome != "all":
+            clauses.append("u.outcome=?")
+            args.append(outcome)
+        where = " AND ".join(clauses)
+        with self._db() as db:
+            rows = db.execute(f"""SELECT u.ts, u.host, u.path, u.method, u.status_code, u.success, u.outcome, u.credits, u.duration_ms, u.proxied, k.name key_name
+                FROM usage u LEFT JOIN api_keys k ON k.id=u.key_id WHERE {where} ORDER BY u.id DESC LIMIT ?""", (*args, limit)).fetchall()
+            counts = {row["outcome"]: row["n"] for row in db.execute("SELECT outcome, count(*) n FROM usage WHERE user_id=? AND ts>=? GROUP BY outcome", (user_id, since)).fetchall()}
+        return {"rows": [dict(r) for r in rows], "counts": {o: counts.get(o, 0) for o in self.OUTCOMES}, "total": sum(counts.values())}
 
     # --- administración ------------------------------------------
     def grant_credits(self, email: str, credits: int, plan: str | None = None) -> dict:

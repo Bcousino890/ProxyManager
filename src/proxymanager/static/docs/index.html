@@ -22,6 +22,7 @@
   <div class="grp">Operación</div>
   <a class="l" href="#creditos">Créditos y facturación</a>
   <a class="l" href="#limites">Límites</a>
+  <a class="l" href="#registro">Registro de solicitudes</a>
   <a class="l" href="#errores">Errores</a>
   <a class="l" href="#ejemplos">Ejemplos</a>
   <a class="l" href="#uso-aceptable">Uso aceptable</a>
@@ -136,6 +137,17 @@ curl -X DELETE https://TU-DOMINIO/v1/sessions/ses_… -H 'x-api-key: TU_CLAVE_AP
 <tr><td>Duración de una sesión</td><td>1 hora</td></tr>
 </table>
 <p>Configura un cliente con tiempo de espera propio de al menos 30 s.</p>
+
+<h2 id="registro">Registro de solicitudes</h2>
+<p>En la consola, <em>Uso</em> → <em>Registro de solicitudes</em> clasifica cada llamada en una de cuatro categorías, con filtro por periodo y por resultado:</p>
+<table>
+<tr><th>Categoría</th><th>Significa</th></tr>
+<tr><td>Entregada</td><td><code>success: true</code>: 2xx, sin desafío y con el texto esperado si lo pediste.</td></tr>
+<tr><td>Bloqueada</td><td>El destino respondió con un marcador de desafío (<code>validation.challenge_detected</code>).</td></tr>
+<tr><td>Error del sitio</td><td>El destino respondió, pero no 2xx o sin el texto esperado.</td></tr>
+<tr><td>No se pudo conectar</td><td>Error de transporte: nunca hubo respuesta (DNS, conexión, tiempo agotado).</td></tr>
+</table>
+<p>Una solicitud rechazada antes de intentar el destino (URL no autorizada, sin créditos, límite de tasa) no aparece aquí: el error llega directo en la respuesta de <code>/scrape</code>, sin cobro.</p>
 
 <h2 id="errores">Errores</h2>
 <table>

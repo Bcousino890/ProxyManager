@@ -333,8 +333,17 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             result["challenge"] = info
         if user_id:
             from urllib.parse import urlsplit
-            accounts.record_usage(user_id, (key or {}).get("id"), urlsplit(request.url).hostname or "", result.get("status_code"), bool(result.get("success")), cost,
-                                  result.get("bytes_transferred", 0), result.get("duration_ms"), proxied)
+            parts = urlsplit(request.url)
+            if result.get("success"):
+                outcome = "delivered"
+            elif result.get("status_code") is None:
+                outcome = "not_reachable"  # error de red/DNS/tiempo agotado: nunca hubo respuesta del destino
+            elif result.get("validation", {}).get("challenge_detected"):
+                outcome = "blocked"        # el destino respondió con un desafío (CAPTCHA/verificación)
+            else:
+                outcome = "site_error"     # el destino respondió, pero no con lo esperado (estado o contenido)
+            accounts.record_usage(user_id, (key or {}).get("id"), parts.hostname or "", result.get("status_code"), bool(result.get("success")), cost,
+                                  result.get("bytes_transferred", 0), result.get("duration_ms"), proxied, outcome, parts.path or "/", request.method)
         return {"request_id": "req_" + uuid.uuid4().hex, "session_id": request.session_id, "credits_charged": cost if (user_id and result.get("success")) else 0, **result}
 
     @app.post("/scrape")
@@ -412,6 +421,13 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.get("/v1/account/usage")
     def usage(days: int = 30, user: dict = Depends(web_user)):
         return accounts.usage_summary(user["id"], max(1, min(days, 90)))
+
+    @app.get("/v1/account/usage/log")
+    def usage_log(period: Literal["hour", "today", "7d", "30d"] = "7d",
+                  outcome: Literal["all", "delivered", "blocked", "site_error", "not_reachable"] = "all",
+                  user: dict = Depends(web_user)):
+        since = accounts.usage_period_since(period)
+        return {"period": period, "outcome": outcome, **accounts.request_log(user["id"], since, outcome, limit=200)}
 
     @app.post("/v1/account/playground")
     async def playground(request: ScrapeRequest, user: dict = Depends(web_user)):
