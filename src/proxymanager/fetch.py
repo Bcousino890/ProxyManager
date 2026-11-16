@@ -7,6 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from .config import Settings
+from .datadome import Verdict, classify
 
 
 class DestinationRejected(ValueError):
@@ -62,9 +63,9 @@ async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTranspor
                     if len(content) > settings.max_response_bytes:
                         raise ValueError("La respuesta supera el límite configurado")
                 html = content.decode(response.encoding or "utf-8", errors="replace")
-                lowered = html.lower()
-                challenge = any(marker in lowered for marker in ("captcha", "datadome", "device check"))
-                expected = bool(settings.expected_text and settings.expected_text in html)
+                outcome = classify(response.status_code, html, dict(response.headers), settings.expected_text or None)
+                expected = outcome.verdict == Verdict.OK and bool(settings.expected_text)
+                challenge = outcome.is_challenge
                 success = response.status_code == 200 and expected and not challenge
                 return {
                     "success": success,
@@ -72,10 +73,15 @@ async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTranspor
                     "content_type": response.headers.get("content-type", ""),
                     "duration_ms": round((time.perf_counter() - started) * 1000, 2),
                     "bytes_transferred": len(content),
-                    "validation": {"content_expected": expected, "challenge_detected": challenge},
+                    "validation": {
+                        "content_expected": expected,
+                        "challenge_detected": challenge,
+                        "classification": outcome.verdict.value,
+                    },
                     "html": html,
                 }
             finally:
                 await response.aclose()
     except httpx.HTTPError as exc:
-        return {"success": False, "status_code": None, "error": {"type": "transport_error", "message": str(exc)}, "validation": {"content_expected": False, "challenge_detected": False}}
+        return {"success": False, "status_code": None, "error": {"type": "transport_error", "message": str(exc)},
+                "validation": {"content_expected": False, "challenge_detected": False, "classification": Verdict.ERROR.value}}
