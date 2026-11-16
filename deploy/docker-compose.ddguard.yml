@@ -1,0 +1,25 @@
+# Superposición OPCIONAL: añade a la API el manejador ddguard (Idealista) con navegador y noVNC
+# para el CAPTCHA deslizante. NO actives esto sin que /admin/ → Desafíos tenga una autorización
+# declarada (ver docs/extending-challenge-handlers.md); sin ella /scrape no lo invoca igualmente,
+# pero esta superposición instala y deja corriendo el navegador, así que solo tiene sentido
+# aplicarla cuando de verdad vas a usarlo.
+#
+# Uso:  docker compose -f docker-compose.yml -f docker-compose.ddguard.yml up -d --build
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.ddguard
+    environment:
+      PROXYMANAGER_CHALLENGE_HANDLER: "integrations.ddguard_handler:build_handler"
+      DDGUARD_HEADLESS: ${DDGUARD_HEADLESS:-true}
+      DDGUARD_CAPTCHA_MODE: ${DDGUARD_CAPTCHA_MODE:-wait}
+      DDGUARD_VNC_PASSWORD: ${DDGUARD_VNC_PASSWORD:-}
+    volumes:
+      - dd_sessions:/dd_sessions
+    ports:
+      # Publicado SOLO en localhost del VPS: entra por túnel SSH, nunca abierto a Internet.
+      # Requiere DDGUARD_HEADLESS=false para que haya algo que ver.
+      - "127.0.0.1:6080:6080"
+volumes:
+  dd_sessions:

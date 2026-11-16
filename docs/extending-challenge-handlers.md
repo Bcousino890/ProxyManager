@@ -36,6 +36,8 @@ Quien conecte un manejador debe tener **autorización sobre el destino** y cumpl
 
 ## Ejemplo conectado: ddguard (Idealista)
 
+Guía de instalación en el VPS (imagen aparte, noVNC, qué es automático y qué no): `docs/ddguard-vps.md`.
+
 `integrations/ddguard/` trae un manejador real para Idealista (`curl_cffi` + Camoufox) y
 `integrations/ddguard_handler.py` lo adapta al contrato de arriba. **Solo actúa sobre
 idealista.com**: para cualquier otro destino devuelve `None` sin tocar nada.
