@@ -110,3 +110,17 @@ Antes solo existía una clave maestra compartida (`PROXYMANAGER_ADMIN_KEY`) para
 - **Bug real encontrado y corregido al probarlo:** `GET /v1/proxies` y otros endpoints usados por la consola de administración dependían de la autenticación antigua por cabecera (`authenticated`), que no reconocía la nueva sesión de administrador por cookie — la consola se quedaba atascada tras iniciar sesión. `authenticated` ahora acepta también la cookie de sesión de administrador.
 - Probado: `pytest -q` → **54 passed** (3 tests nuevos: arranque, invitación, bloqueo de autoeliminación, acceso con clave maestra, CSRF). Flujo completo repetido con Chromium contra un servidor real: registro del primer administrador, pestaña Equipo, invitar, cerrar sesión, iniciar sesión como el invitado, ver el equipo — confirmado por los logs del servidor además de las capturas.
 - Pendiente: recuperación de contraseña para administradores (no implementada, igual que para clientes); auditoría más fina de qué hizo cada administrador en el catálogo de proxies o en créditos (hoy solo se audita la autorización de desafíos).
+
+## Avance (16 noviembre 2026): registro del primer administrador sin clave maestra
+
+A petición del propietario, `POST /v1/admin/register` ya no exige `PROXYMANAGER_ADMIN_KEY`: el alta del primer administrador funciona como un registro normal (nombre, correo, contraseña). La única protección que queda es que **solo funciona una vez** — `admin_accounts.bootstrap()` lo rechaza (422) en cuanto ya existe un administrador; a partir de ahí hay que invitar desde Equipo con una sesión ya iniciada. `PROXYMANAGER_ADMIN_KEY` sigue funcionando igual que antes como acceso de emergencia por cabecera (`administrator`), sin cambios ahí.
+
+**Nota de seguridad para quien despliegue esto en un VPS real:** mientras no exista ningún administrador, cualquiera que llegue primero a `https://TU-DOMINIO/admin/` puede registrarse como el administrador. Crea el primer administrador **inmediatamente** después de desplegar, antes de anunciar o compartir la URL. Esto queda documentado aquí y en `deploy/README.md` pendiente de revisar con el propietario si quiere un gate adicional (p. ej. volver a pedir la clave para el primer registro) antes de producción.
+
+Probado: `pytest -q` → **54 passed** (ajustados los tests que antes mandaban `master_key`). Confirmado con Chromium: el formulario ya no pide la clave y tras registrarse entra directo al Resumen.
+
+## Avance (16 noviembre 2026): sin longitud mínima de contraseña
+
+A petición del propietario (fricción al probar en local), se quitó el mínimo de 10 caracteres en alta de cliente, alta/invitación de administrador y cambio de contraseña; solo se exige no vacía (1-200 caracteres). Probado: `pytest -q` → **54 passed** (test actualizado: contraseña vacía sigue rechazada, una corta ya se acepta).
+
+**Nota de seguridad:** esto facilita usar contraseñas débiles. Antes de un despliegue real conviene reconsiderar un mínimo razonable (o un medidor de fuerza en la consola), sobre todo para cuentas de administrador.

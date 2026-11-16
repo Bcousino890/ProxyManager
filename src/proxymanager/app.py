@@ -98,7 +98,6 @@ class ChallengeAuthorize(BaseModel):
 
 
 class AdminBootstrap(BaseModel):
-    master_key: str
     email: str
     name: str = Field(min_length=1, max_length=120)
     password: str
@@ -495,10 +494,10 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
 
     @app.post("/v1/admin/register", status_code=201)
     def admin_register(body: AdminBootstrap, response: Response, request: Request):
+        """Registro del primer administrador, sin clave maestra. Solo funciona mientras no exista
+        ninguno (admin_accounts.bootstrap lo exige); después hay que invitar desde Equipo."""
         if not login_limit.allow("admin-register|" + client_ip(request)):
             raise HTTPException(429, "Demasiados intentos")
-        if not settings.admin_key or not secrets.compare_digest(body.master_key, settings.admin_key):
-            raise HTTPException(403, "Clave maestra incorrecta")
         try:
             admin = admin_accounts.bootstrap(body.email, body.name, body.password)
         except AccountError as exc:

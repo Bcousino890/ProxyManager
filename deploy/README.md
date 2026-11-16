@@ -89,6 +89,10 @@ Abre `https://TU-DOMINIO/app/` (consola de clientes), `https://TU-DOMINIO/admin/
 administración), `https://TU-DOMINIO/docs/` (documentación pública). Guía completa en
 `docs/real-testing.md`.
 
+## 3B. Crea el primer administrador de inmediato
+
+`POST /v1/admin/register` (el formulario de `/admin/` la primera vez) ya no pide la clave maestra: funciona como un alta normal, pero **solo una vez**. Mientras no exista ningún administrador, cualquiera que entre primero a `https://TU-DOMINIO/admin/` puede registrarse con control total. Entra y crea el tuyo en cuanto el servicio esté arriba, antes de compartir la URL con nadie. `PROXYMANAGER_ADMIN_KEY` sigue sirviendo como acceso de emergencia por cabecera si alguna vez pierdes el acceso.
+
 ## 4. Primeros pasos de administración
 
 ```bash

@@ -63,7 +63,7 @@ function codeTabs(key, body) {
 function authScreen(mode = "login") {
   const err = h("div", { class: "err", role: "alert" });
   const email = h("input", { type: "email", autocomplete: "email", required: true });
-  const pass = h("input", { type: "password", autocomplete: mode === "login" ? "current-password" : "new-password", required: true, minlength: mode === "login" ? 1 : 10 });
+  const pass = h("input", { type: "password", autocomplete: mode === "login" ? "current-password" : "new-password", required: true, minlength: 1 });
   const form = h("form", { class: "card", onsubmit: async e => {
     e.preventDefault(); err.textContent = "";
     try {
@@ -76,7 +76,7 @@ function authScreen(mode = "login") {
     h("h1", {}, mode === "login" ? "Inicia sesión" : "Crea tu cuenta"),
     mode === "signup" && h("p", { class: "lead" }, "Incluye créditos gratuitos para probar la API."),
     h("label", {}, "Correo electrónico", email),
-    h("label", {}, mode === "login" ? "Contraseña" : "Contraseña (mínimo 10 caracteres)", pass),
+    h("label", {}, mode === "login" ? "Contraseña" : "Contraseña", pass),
     err,
     h("button", { class: "primary", type: "submit" }, mode === "login" ? "Entrar" : "Crear cuenta"),
     h("p", { class: "muted" }, mode === "login" ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? ",
@@ -254,12 +254,12 @@ const PAGES = {
   }],
   account: ["Cuenta", async () => {
     const cur = h("input", { type: "password", autocomplete: "current-password" });
-    const nw = h("input", { type: "password", autocomplete: "new-password", minlength: 10 });
+    const nw = h("input", { type: "password", autocomplete: "new-password", minlength: 1 });
     const msg = h("div", { class: "err" });
     return [h("div", { class: "card" }, h("h2", {}, "Perfil"), h("p", {}, h("b", {}, me.email)), h("p", { class: "muted" }, "Cuenta creada el " + date(me.created_at)),
       h("button", { onclick: async () => { await api("/v1/account/logout", { method: "POST" }); me = null; await boot(); } }, "Cerrar sesión")),
       h("div", { class: "card", style: "display:grid;gap:12px;max-width:420px" }, h("h2", {}, "Cambiar contraseña"),
-        h("label", {}, "Contraseña actual", cur), h("label", {}, "Nueva contraseña (mínimo 10)", nw), msg,
+        h("label", {}, "Contraseña actual", cur), h("label", {}, "Nueva contraseña", nw), msg,
         h("button", { class: "primary", onclick: async () => { msg.className = "err"; try { await api("/v1/account/password", { method: "POST", body: { current_password: cur.value, new_password: nw.value } }); msg.className = "muted"; msg.textContent = "Contraseña actualizada; se cerraron las demás sesiones."; cur.value = nw.value = ""; } catch (x) { msg.textContent = x.message; } } }, "Actualizar"))];
   }],
   subscription: ["Suscripción", async () => {

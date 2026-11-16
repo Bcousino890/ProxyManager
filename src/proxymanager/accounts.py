@@ -94,8 +94,8 @@ class Accounts:
         email = email.strip().lower()
         if not _EMAIL.match(email):
             raise AccountError("Correo electrónico inválido")
-        if len(password) < 10 or len(password) > 200:
-            raise AccountError("La contraseña debe tener entre 10 y 200 caracteres")
+        if not (1 <= len(password) <= 200):
+            raise AccountError("La contraseña debe tener entre 1 y 200 caracteres")
         user_id = "usr_" + uuid.uuid4().hex
         try:
             with self._db() as db:
@@ -138,8 +138,8 @@ class Accounts:
             db.execute("DELETE FROM web_sessions WHERE token_hash=?", (_sha(token),))
 
     def change_password(self, user_id: str, current: str, new: str, keep_token: str | None = None) -> None:
-        if len(new) < 10 or len(new) > 200:
-            raise AccountError("La contraseña debe tener entre 10 y 200 caracteres")
+        if not (1 <= len(new) <= 200):
+            raise AccountError("La contraseña debe tener entre 1 y 200 caracteres")
         with self._db() as db:
             row = db.execute("SELECT password_hash FROM users WHERE id=?", (user_id,)).fetchone()
             if not row or not verify_password(current, row["password_hash"]):
@@ -298,8 +298,8 @@ class AdminAccounts:
             raise AccountError("Correo electrónico inválido")
         if not (1 <= len(name) <= 120):
             raise AccountError("El nombre debe tener entre 1 y 120 caracteres")
-        if len(password) < 10 or len(password) > 200:
-            raise AccountError("La contraseña debe tener entre 10 y 200 caracteres")
+        if not (1 <= len(password) <= 200):
+            raise AccountError("La contraseña debe tener entre 1 y 200 caracteres")
         admin_id = "adm_" + uuid.uuid4().hex
         try:
             with self._db() as db:

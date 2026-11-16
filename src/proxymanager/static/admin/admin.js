@@ -43,23 +43,20 @@ function masterKeyScreen(err) {
 }
 
 function bootstrapScreen() {
-  const masterKey = h("input", { type: "password", autocomplete: "off", required: true });
   const name = h("input", { autocomplete: "name", required: true, maxlength: 120 });
   const email = h("input", { type: "email", autocomplete: "email", required: true });
-  const pass = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 10 });
+  const pass = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 1 });
   const err = h("div", { class: "err" });
   return h("form", { class: "card", onsubmit: async e => {
     e.preventDefault(); err.textContent = "";
     try {
-      await api("/v1/admin/register", { method: "POST", body: { master_key: masterKey.value, name: name.value, email: email.value, password: pass.value } });
+      await api("/v1/admin/register", { method: "POST", body: { name: name.value, email: email.value, password: pass.value } });
       start();
     } catch (x) { err.textContent = x.message; }
   } }, h("h1", {}, "Crear el primer administrador"),
-    h("p", { class: "muted" }, "Todavía no hay ningún administrador con nombre en este despliegue. Usa la clave maestra (",
-      h("code", {}, "PROXYMANAGER_ADMIN_KEY"), ", definida en el servidor) una sola vez para crear el tuyo."),
-    h("label", {}, "Clave de administración (PROXYMANAGER_ADMIN_KEY)", masterKey),
+    h("p", { class: "muted" }, "Todavía no hay ningún administrador en este despliegue. Esta alta solo funciona una vez: en cuanto exista un administrador, cualquier otro debe invitarse desde Equipo."),
     h("label", {}, "Tu nombre", name), h("label", {}, "Correo electrónico", email),
-    h("label", {}, "Contraseña (mínimo 10 caracteres)", pass), err,
+    h("label", {}, "Contraseña", pass), err,
     h("button", { class: "primary", type: "submit" }, "Crear administrador y entrar"));
 }
 
@@ -169,7 +166,7 @@ const PAGES = {
     const byId = Object.fromEntries(team.map(a => [a.id, a]));
     const name = h("input", { placeholder: "Nombre", maxlength: 120 });
     const email = h("input", { type: "email", placeholder: "Correo electrónico" });
-    const pass = h("input", { type: "password", placeholder: "Contraseña (mínimo 10 caracteres)", minlength: 10 });
+    const pass = h("input", { type: "password", placeholder: "Contraseña", minlength: 1 });
     const msg = h("div", { class: "err" });
     return [
       h("p", { class: "lead" }, me.id ? `Sesión iniciada como ${me.name} (${me.email}).` : "Sesión iniciada con la clave maestra."),
