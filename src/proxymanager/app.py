@@ -20,6 +20,9 @@ from .health import ProxyHealth, QueueFull
 from .accounts import AccountError, Accounts, SlidingWindow
 from .transport import PinnedProxyTransport
 from .importer import import_proxy_text
+from .challenges import ChallengeContext, ChallengeHandler, load_handler
+import asyncio
+from .fetch import classify
 
 STATIC = Path(__file__).parent / "static"
 SESSION_COOKIE = "pm_session"
@@ -52,6 +55,7 @@ class ScrapeRequest(BaseModel):
     session_id: str | None = None
     use_proxy: bool = False
     expected_text: str | None = Field(default=None, max_length=500)
+    solve_challenges: bool = False
 
 
 class Credentials(BaseModel):
@@ -92,7 +96,7 @@ class CreditGrant(BaseModel):
     plan: str | None = None
 
 
-def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None, challenge_handler: ChallengeHandler | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = SessionStore(settings.db_path)
     cookies = CookieStore(settings.db_path, settings.credential_key, store, settings.allowed_hosts, settings.allow_any_public_host)
@@ -101,10 +105,20 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     login_limit = SlidingWindow(settings.login_attempts_per_minute)
     proxies = ProxyStore(settings.db_path, settings.credential_key)
     health_checks = ProxyHealth(proxies, settings, transport)
+    handler = challenge_handler or load_handler(settings.challenge_handler)
     @asynccontextmanager
     async def lifespan(app):
         health_checks.recover()
+        sweeper = None
+        if settings.health_url and settings.health_interval_seconds > 0:
+            async def loop():
+                while True:
+                    await health_checks.sweep()
+                    await asyncio.sleep(settings.health_interval_seconds)
+            sweeper = asyncio.create_task(loop())
         yield
+        if sweeper:
+            sweeper.cancel()
 
     app = FastAPI(title="ProxyManager API", version="0.2.0", lifespan=lifespan, docs_url="/api-reference", redoc_url=None)
 
@@ -254,22 +268,59 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         body = request.body.encode() if request.body is not None else None
         if body is not None and len(body) > settings.max_response_bytes:
             raise HTTPException(status_code=413, detail="Cuerpo demasiado grande")
+        tried: list[str] = []
+        cookie_header = ""
+        proxy_id = None
+        result = None
         try:
             guard_url(request.url, settings)
-            use_transport = transport
-            if proxied:
-                proxy_id = proxies.pick(request.country)
-                if proxy_id is None:
-                    raise HTTPException(status_code=422, detail="No hay proxies disponibles para esa petición")
-                if transport is None:
-                    use_transport = PinnedProxyTransport(health_checks.connection(proxy_id), guard_url(request.url, settings)[1])
-            cookie_header = cookies.header(request.session_id, owner, request.url) if request.session_id else ""
-            on_set_cookie = (lambda h: cookies.record(request.session_id, owner, request.url, h)) if request.session_id else None
-            result = await fetch(request.url, settings, use_transport, cookie_header, on_set_cookie, request.method, headers, body, request.expected_text)
+            for _ in range(2 if proxied else 1):
+                use_transport = transport
+                if proxied:
+                    proxy_id = proxies.choose(request.country, request.session_id, set(tried), settings.health_ttl_seconds)
+                    if proxy_id is None:
+                        if result is None:
+                            raise HTTPException(status_code=422, detail="No hay proxies sanos disponibles para esa petición")
+                        break
+                    if transport is None:
+                        use_transport = PinnedProxyTransport(health_checks.connection(proxy_id), guard_url(request.url, settings)[1])
+                cookie_header = cookies.header(request.session_id, owner, request.url) if request.session_id else ""
+                on_set_cookie = (lambda h: cookies.record(request.session_id, owner, request.url, h)) if request.session_id else None
+                result = await fetch(request.url, settings, use_transport, cookie_header, on_set_cookie, request.method, headers, body, request.expected_text)
+                if proxied and result.get("error"):
+                    health_checks.record(proxy_id, False, "scrape")
+                    tried.append(proxy_id)
+                    continue
+                break
         except DestinationRejected as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if proxied and proxy_id and not result.get("error"):
+            health_checks.record(proxy_id, True, "scrape")
+        result["proxy_id"] = proxy_id if proxied else None
+        if result.get("validation", {}).get("challenge_detected"):
+            info = {"detected": True, "handler": handler.name if handler else None, "handled": False, "resolved": False}
+            if handler and request.solve_challenges:
+                info["handled"] = True
+                try:
+                    resolution = await handler.handle(ChallengeContext(request.url, request.method, result.get("status_code"), result.get("headers", {}), result.get("html", ""), request.session_id, proxy_id, cookie_header))
+                except Exception:
+                    resolution = None
+                    info["error"] = "handler_failed"
+                if resolution and resolution.resolved:
+                    html = resolution.html if resolution.html is not None else result.get("html", "")
+                    status = resolution.status_code or result.get("status_code") or 0
+                    if request.session_id and resolution.set_cookies:
+                        cookies.record(request.session_id, owner, request.url, resolution.set_cookies)
+                    result["html"], result["status_code"] = html, status
+                    if resolution.headers is not None:
+                        result["headers"] = resolution.headers
+                    result["success"], result["validation"] = classify(html, status, settings, request.expected_text)
+                    info["resolved"] = bool(result["success"])
+                    if info["resolved"]:
+                        cost += settings.credits_challenge_resolved
+            result["challenge"] = info
         if user_id:
             from urllib.parse import urlsplit
             accounts.record_usage(user_id, (key or {}).get("id"), urlsplit(request.url).hostname or "", result.get("status_code"), bool(result.get("success")), cost,

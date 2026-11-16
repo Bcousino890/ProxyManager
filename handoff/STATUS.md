@@ -70,3 +70,9 @@ No hecho / pendiente: despliegue (no hay VPS ni IP, no se contrató nada); pasar
 ## Avance (16 noviembre 2026): panel de administración `/admin/`
 
 Panel con la clave `PROXYMANAGER_ADMIN_KEY` (guardada solo en `sessionStorage`): resumen, catálogo de proxies (añadir, importar lote `host:puerto:usuario:contraseña`, tipo, país, activar/desactivar, eliminar, lanzar comprobación con una URL autorizada, última comprobación) y clientes (listado y concesión de créditos). Nuevos endpoints de administración: `PATCH/DELETE /v1/proxies/{id}`, `POST /v1/proxies/import`, `GET /v1/admin/stats`. Los proxies desactivados no se eligen en `/scrape`. Probado: `pytest -q` → **39 passed**; capturas con Chromium usando datos de demostración en una base temporal. Pendiente: la clave de administración única no es un login con usuarios/2FA; añadir auditoría de acciones de administración.
+
+## Avance (16 noviembre 2026): salud de proxies en `/scrape` y gancho de desafíos
+
+- Selección: activos, sin fallo en los últimos `PROXYMANAGER_HEALTH_TTL_SECONDS`, prefiriendo los que superaron una comprobación. Fallos de transporte reales se registran (comprobación pasiva) y apartan el proxy; un éxito lo rehabilita. Un reintento con otro proxy. IP fija por `session_id` (tabla `session_proxy`, purgada al borrar la sesión). Barrido periódico opcional con `PROXYMANAGER_HEALTH_URL` + `PROXYMANAGER_HEALTH_INTERVAL_SECONDS`. Sin proxies sanos: 422.
+- `src/proxymanager/challenges.py`: interfaz `ChallengeHandler`, sin implementación; ver `docs/extending-challenge-handlers.md`. Respuesta incluye `challenge` y `proxy_id`.
+- Probado: `pytest -q` → **45 passed** (transporte simulado). No probado con proxies reales ni barrido periódico en vivo; la selección no distingue fallos del destino de fallos del proxy salvo por error de transporte.

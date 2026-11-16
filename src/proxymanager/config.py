@@ -26,6 +26,11 @@ class Settings:
     login_attempts_per_minute: int = 10
     cookie_secure: bool = True
     support_email: str = ""
+    health_url: str = ""
+    health_interval_seconds: int = 0
+    health_ttl_seconds: int = 3600
+    challenge_handler: str = ""
+    credits_challenge_resolved: int = 0
 
     def __post_init__(self):
         if min(self.rate_limit_per_minute, self.login_attempts_per_minute, self.credits_per_request, self.credits_per_proxied_request) <= 0 or self.free_credits < 0:
@@ -50,6 +55,11 @@ class Settings:
             login_attempts_per_minute=int(os.getenv("PROXYMANAGER_LOGIN_ATTEMPTS_PER_MINUTE", "10")),
             cookie_secure=flag("PROXYMANAGER_COOKIE_SECURE", "true"),
             support_email=os.getenv("PROXYMANAGER_SUPPORT_EMAIL", ""),
+            health_url=os.getenv("PROXYMANAGER_HEALTH_URL", ""),
+            health_interval_seconds=int(os.getenv("PROXYMANAGER_HEALTH_INTERVAL_SECONDS", "0")),
+            health_ttl_seconds=int(os.getenv("PROXYMANAGER_HEALTH_TTL_SECONDS", "3600")),
+            challenge_handler=os.getenv("PROXYMANAGER_CHALLENGE_HANDLER", ""),
+            credits_challenge_resolved=int(os.getenv("PROXYMANAGER_CREDITS_CHALLENGE_RESOLVED", "0")),
             health_concurrency=int(os.getenv("PROXYMANAGER_HEALTH_CONCURRENCY", "2")),
             health_queue_limit=int(os.getenv("PROXYMANAGER_HEALTH_QUEUE_LIMIT", "20")),
             db_path=os.getenv("PROXYMANAGER_DB_PATH", "proxymanager.db"),

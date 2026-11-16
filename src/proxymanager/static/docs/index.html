@@ -71,6 +71,7 @@
 <tr><td><code>session_id</code></td><td>string</td><td>Sesión creada con <code>POST /v1/sessions</code>. Ver <a href="#sesiones">Sesiones</a>.</td></tr>
 <tr><td><code>use_proxy</code></td><td>bool</td><td>Enruta por un proxy del catálogo.</td></tr>
 <tr><td><code>country</code></td><td>string (2)</td><td>Código de país del proxy, p. ej. <code>ES</code>. Implica <code>use_proxy</code>.</td></tr>
+<tr><td><code>solve_challenges</code></td><td>bool</td><td>Pide al servicio que intente gestionar un desafío detectado. <strong>Solo tiene efecto si el operador ha conectado un manejador</strong>; en caso contrario se ignora y el desafío se informa en <code>challenge</code>.</td></tr>
 </table>
 <p>Las redirecciones <strong>no se siguen</strong>: recibes el <code>3xx</code> y su cabecera <code>Location</code> y decides tú.</p>
 
@@ -113,7 +114,7 @@ curl -X DELETE https://TU-DOMINIO/v1/sessions/ses_… -H 'x-api-key: TU_CLAVE_AP
 </ul>
 
 <h2 id="proxies">Proxies y país</h2>
-<p><code>use_proxy: true</code> o <code>country</code> enrutan la petición por un proxy HTTP del catálogo del servicio (elegido al azar entre los que cumplan el país). El túnel se abre hacia la IP pública ya comprobada del destino y el certificado TLS se verifica contra el nombre original. Si no hay ningún proxy disponible para la petición recibes <code>422</code>.</p>
+<p><code>use_proxy: true</code> o <code>country</code> enrutan la petición por un proxy HTTP del catálogo del servicio (elegido al azar entre los activos que cumplan el país y no hayan fallado recientemente; se prefieren los que superaron una comprobación). Con <code>session_id</code> se mantiene el mismo proxy durante la sesión mientras siga sano; si el proxy falla por transporte, se reintenta una vez con otro. La respuesta incluye <code>proxy_id</code>. El túnel se abre hacia la IP pública ya comprobada del destino y el certificado TLS se verifica contra el nombre original. Si no hay ningún proxy sano disponible para la petición recibes <code>422</code>.</p>
 <div class="note">El tipo de red de cada proxy (ISP, residencial, centro de datos) y su país se publican tal como los verificó el administrador; hasta que se verifiquen figuran como desconocidos. No se ofrece rotación para esquivar límites o bloqueos de terceros.</div>
 
 <h2 id="creditos">Créditos y facturación</h2>
@@ -182,7 +183,7 @@ console.log(data.success, data.status_code);</code></pre>
 
 <h2 id="alcance">Qué no hace</h2>
 <ul>
-<li><strong>No resuelve CAPTCHA ni supera sistemas antibot.</strong> Detecta marcadores de desafío y lo informa en <code>validation</code>; no se cobra esa solicitud.</li>
+<li><strong>No resuelve CAPTCHA ni supera sistemas antibot por defecto.</strong> Detecta marcadores de desafío y lo informa en <code>validation</code> y <code>challenge</code>; no se cobra esa solicitud. Existe un punto de extensión opcional (<code>solve_challenges</code>) que el operador puede conectar; consulta con él si está activo.</li>
 <li>No renderiza JavaScript ni abre un navegador: es un cliente HTTP.</li>
 <li>No sigue redirecciones automáticamente.</li>
 <li>No garantiza disponibilidad contractual: el servicio es nuevo y no tiene aún un historial de operación publicado.</li>

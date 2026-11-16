@@ -209,3 +209,110 @@ def test_disabled_proxy_not_picked(tmp_path):
     assert store.pick("es") == p["id"]
     store.update(p["id"], enabled=False)
     assert store.pick("ES") is None
+
+
+def seed_proxies(c, n=2, country="ES"):
+    text = "\n".join(f"p{i}.example:8080:u:p" for i in range(n))
+    assert c.post("/v1/proxies/import", headers={"X-API-Key": "admin-secret"}, json={"provider": "l", "text": text, "country": country}).status_code == 200
+
+
+def test_proxy_health_selection_failover_and_sticky(tmp_path, monkeypatch):
+    public_dns(monkeypatch)
+    from cryptography.fernet import Fernet
+    from proxymanager.proxies import ProxyStore
+    mode = {"fail": False}
+
+    def handler(request):
+        if mode["fail"]:
+            raise httpx.ConnectError("boom")
+        return httpx.Response(200, text="hola")
+
+    app = create_app(make(tmp_path, credential_key=Fernet.generate_key().decode(), free_credits=50), transport=httpx.MockTransport(handler))
+    with TestClient(app) as c:
+        seed_proxies(c, 2)
+        h = {"X-API-Key": signup(c)}
+        sid = c.post("/v1/sessions", headers=h).json()["session_id"]
+        first = c.post("/scrape", headers=h, json={"url": "https://example.org/", "country": "es", "session_id": sid}).json()
+        assert first["success"] and first["proxy_id"]
+        for _ in range(4):  # misma IP durante toda la sesión
+            assert c.post("/scrape", headers=h, json={"url": "https://example.org/", "country": "ES", "session_id": sid}).json()["proxy_id"] == first["proxy_id"]
+        mode["fail"] = True  # ambos proxies fallan: se reintenta con el otro y luego quedan apartados
+        failed = c.post("/scrape", headers=h, json={"url": "https://example.org/", "country": "ES"}).json()
+        assert failed["success"] is False and failed["credits_charged"] == 0
+        mode["fail"] = False
+        blocked = c.post("/scrape", headers=h, json={"url": "https://example.org/", "country": "ES"})
+        assert blocked.status_code == 422 and "sanos" in blocked.json()["detail"]
+        assert c.post("/scrape", headers=h, json={"url": "https://example.org/"}).status_code == 200  # sin proxy sigue funcionando
+
+
+def test_pick_prefers_proven_and_skips_failed(tmp_path):
+    import time
+    from cryptography.fernet import Fernet
+    from proxymanager.health import ProxyHealth
+    from proxymanager.proxies import ProxyStore
+    store = ProxyStore(str(tmp_path / "p.db"), Fernet.generate_key().decode())
+    health = ProxyHealth(store, make(tmp_path))
+    a, b, c3 = (store.create("x", f"h{i}.example", 8080, "isp", "ES", None, None)["id"] for i in range(3))
+    health.record(a, True)
+    health.record(b, False)
+    assert {store.pick("ES") for _ in range(30)} == {a}  # a probado; b apartado; c sin datos queda en reserva
+    store.update(a, enabled=False)
+    assert store.pick("ES") == c3
+    assert store.pick("ES", exclude={c3}) is None
+    assert store.pick("ES", ttl=0) in (b, c3)  # con TTL vencido b vuelve a ser elegible
+
+
+def test_challenge_hook_is_off_by_default(tmp_path, monkeypatch):
+    public_dns(monkeypatch)
+    transport = httpx.MockTransport(lambda r: httpx.Response(200, text="Please solve this CAPTCHA"))
+    with TestClient(create_app(make(tmp_path), transport=transport)) as c:
+        h = {"X-API-Key": signup(c)}
+        r = c.post("/scrape", headers=h, json={"url": "https://example.org/", "solve_challenges": True}).json()
+        assert r["success"] is False and r["credits_charged"] == 0
+        assert r["challenge"] == {"detected": True, "handler": None, "handled": False, "resolved": False}
+
+
+class FakeHandler:
+    name = "fake"
+
+    def __init__(self, resolve=True, boom=False):
+        self.resolve, self.boom, self.calls = resolve, boom, []
+
+    async def handle(self, context):
+        from proxymanager.challenges import ChallengeResolution
+        self.calls.append(context)
+        if self.boom:
+            raise RuntimeError("secreto-interno")
+        return ChallengeResolution(self.resolve, html="contenido real", status_code=200)
+
+
+def test_challenge_handler_plugs_in_and_is_opt_in(tmp_path, monkeypatch):
+    public_dns(monkeypatch)
+    transport = httpx.MockTransport(lambda r: httpx.Response(403, text="captcha required"))
+    fake = FakeHandler()
+    with TestClient(create_app(make(tmp_path, credits_challenge_resolved=4, free_credits=50), transport=transport, challenge_handler=fake)) as c:
+        h = {"X-API-Key": signup(c)}
+        no_opt = c.post("/scrape", headers=h, json={"url": "https://example.org/"}).json()
+        assert no_opt["success"] is False and not fake.calls and no_opt["challenge"]["handled"] is False
+        r = c.post("/scrape", headers=h, json={"url": "https://example.org/", "solve_challenges": True}).json()
+        assert r["success"] is True and r["html"] == "contenido real" and r["credits_charged"] == 5  # 1 base + 4 extra
+        assert r["challenge"]["resolved"] is True and len(fake.calls) == 1
+
+
+def test_challenge_handler_failure_is_contained(tmp_path, monkeypatch):
+    public_dns(monkeypatch)
+    transport = httpx.MockTransport(lambda r: httpx.Response(403, text="captcha"))
+    with TestClient(create_app(make(tmp_path), transport=transport, challenge_handler=FakeHandler(boom=True))) as c:
+        h = {"X-API-Key": signup(c)}
+        r = c.post("/scrape", headers=h, json={"url": "https://example.org/", "solve_challenges": True})
+        assert r.status_code == 200 and r.json()["success"] is False and "secreto-interno" not in r.text
+        assert r.json()["challenge"]["error"] == "handler_failed"
+
+
+def test_load_handler_spec():
+    import pytest
+    from proxymanager.challenges import NoopHandler, load_handler
+    assert load_handler("") is None
+    assert load_handler("proxymanager.challenges:NoopHandler").name == NoopHandler.name
+    with pytest.raises(ValueError):
+        load_handler("sin-formato")

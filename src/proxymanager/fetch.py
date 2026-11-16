@@ -44,6 +44,16 @@ def guard_url(url: str, settings: Settings) -> tuple[str, str]:
     return pinned_url, host
 
 
+CHALLENGE_MARKERS = ("captcha", "datadome", "device check")
+
+
+def classify(html: str, status_code: int, settings: Settings, expected_text: str | None = None) -> tuple[bool, dict]:
+    challenge = any(marker in html.lower() for marker in CHALLENGE_MARKERS)
+    required = settings.expected_text if expected_text is None else expected_text
+    expected = (required in html) if required else True
+    return 200 <= status_code < 300 and expected and not challenge, {"content_expected": expected, "challenge_detected": challenge}
+
+
 async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTransport | None = None,
                 cookie_header: str = "", on_set_cookie: Callable[[list[str]], None] | None = None,
                 method: str = "GET", headers: dict[str, str] | None = None, body: bytes | None = None, expected_text: str | None = None) -> dict:
@@ -67,11 +77,7 @@ async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTranspor
                     if len(content) > settings.max_response_bytes:
                         raise ValueError("La respuesta supera el límite configurado")
                 html = content.decode(response.encoding or "utf-8", errors="replace")
-                lowered = html.lower()
-                challenge = any(marker in lowered for marker in ("captcha", "datadome", "device check"))
-                required = settings.expected_text if expected_text is None else expected_text
-                expected = (required in html) if required else True
-                success = 200 <= response.status_code < 300 and expected and not challenge
+                success, validation = classify(html, response.status_code, settings, expected_text)
                 return {
                     "success": success,
                     "status_code": response.status_code,
@@ -79,7 +85,7 @@ async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTranspor
                     "duration_ms": round((time.perf_counter() - started) * 1000, 2),
                     "bytes_transferred": len(content),
                     "headers": {k: v for k, v in response.headers.items() if k.lower() != "set-cookie"},
-                    "validation": {"content_expected": expected, "challenge_detected": challenge},
+                    "validation": validation,
                     "html": html,
                 }
             finally:

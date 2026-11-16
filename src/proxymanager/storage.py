@@ -37,4 +37,6 @@ class SessionStore:
             result = db.execute("DELETE FROM sessions WHERE id=? AND owner=?", (session_id, owner))
             if result.rowcount > 0 and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_cookies'").fetchone():
                 db.execute("DELETE FROM session_cookies WHERE session_id=?", (session_id,))
+            if result.rowcount > 0 and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_proxy'").fetchone():
+                db.execute("DELETE FROM session_proxy WHERE session_id=?", (session_id,))
             return result.rowcount > 0

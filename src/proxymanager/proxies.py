@@ -2,6 +2,7 @@ import json
 import os
 import secrets
 import sqlite3
+import time
 import uuid
 
 from cryptography.fernet import Fernet
@@ -13,6 +14,7 @@ class ProxyStore:
         self.cipher = Fernet(credential_key.encode()) if credential_key else None
         with sqlite3.connect(self.db_path) as db:
             db.execute("CREATE TABLE IF NOT EXISTS proxies (id TEXT PRIMARY KEY, provider TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, kind TEXT NOT NULL, country TEXT NOT NULL, credentials BLOB)")
+            db.execute("CREATE TABLE IF NOT EXISTS session_proxy (session_id TEXT PRIMARY KEY, proxy_id TEXT NOT NULL)")
             if "enabled" not in {r[1] for r in db.execute("PRAGMA table_info(proxies)")}:
                 db.execute("ALTER TABLE proxies ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
         if self.db_path != ":memory:":
@@ -63,11 +65,34 @@ class ProxyStore:
                 db.execute("DELETE FROM proxy_checks WHERE proxy_id=?", (proxy_id,))
         return deleted
 
-    def pick(self, country: str | None = None) -> str | None:
-        """Devuelve el id de un proxy al azar, filtrado por país si se indica."""
-        query, args = "SELECT id FROM proxies WHERE enabled=1", ()
-        if country:
-            query, args = query + " AND upper(country)=?", (country.upper(),)
-        with sqlite3.connect(self.db_path) as db:
-            rows = db.execute(query, args).fetchall()
-        return secrets.choice(rows)[0] if rows else None
+    def _candidates(self, country: str | None, exclude, ttl: float, now: float | None = None) -> "list[dict]":
+        now = now or time.time()
+        out = []
+        for proxy in self.list():
+            check = proxy.get("last_check")
+            if not proxy["enabled"] or proxy["id"] in exclude or (country and proxy["country"].upper() != country.upper()):
+                continue
+            if check and not check["success"] and now - check["at"] < ttl:
+                continue  # falló hace poco: se aparta hasta que caduque ttl o una comprobación vuelva a salir bien
+            out.append(proxy)
+        return out
+
+    def pick(self, country: str | None = None, exclude=(), ttl: float = 3600) -> str | None:
+        """Elige al azar entre proxies activos y sin fallo reciente; prefiere los que ya superaron una comprobación."""
+        candidates = self._candidates(country, exclude, ttl)
+        proven = [p for p in candidates if p.get("last_check") and p["last_check"]["success"]]
+        pool = proven or candidates
+        return secrets.choice(pool)["id"] if pool else None
+
+    def choose(self, country: str | None, session_id: str | None, exclude=(), ttl: float = 3600) -> str | None:
+        """Como pick, pero mantiene el mismo proxy por sesión mientras siga sano."""
+        if session_id:
+            with sqlite3.connect(self.db_path) as db:
+                row = db.execute("SELECT proxy_id FROM session_proxy WHERE session_id=?", (session_id,)).fetchone()
+            if row and any(p["id"] == row[0] for p in self._candidates(country, exclude, ttl)):
+                return row[0]
+        chosen = self.pick(country, exclude, ttl)
+        if chosen and session_id:
+            with sqlite3.connect(self.db_path) as db:
+                db.execute("INSERT OR REPLACE INTO session_proxy (session_id, proxy_id) VALUES (?, ?)", (session_id, chosen))
+        return chosen
