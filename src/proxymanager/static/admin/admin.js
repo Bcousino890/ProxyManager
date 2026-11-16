@@ -37,7 +37,38 @@ function loginScreen(msg) {
     h("label", {}, "Clave de administración", key), err, h("button", { class: "primary", type: "submit" }, "Entrar"))));
 }
 
+const dateFull = ts => ts ? new Date(ts * 1000).toLocaleString("es-ES", { dateStyle: "full", timeStyle: "short" }) : "—";
 const PAGES = {
+  desafios: ["Desafíos", async () => {
+    const s = await api("/v1/admin/challenge-handler");
+    const by = h("input", { placeholder: "Quién autorizó (nombre y cargo o empresa)", maxlength: 200 });
+    const ref = h("textarea", { placeholder: "Referencia verificable: correo, contrato, ticket, fecha… copia el texto o un enlace", maxlength: 4000 });
+    const msg = h("div", { class: "err" });
+    const out = [h("p", { class: "lead" }, "Un manejador conectado por código (", h("code", {}, "PROXYMANAGER_CHALLENGE_HANDLER"), ") no actúa en ", h("code", {}, "/scrape"), " hasta que aquí se declare quién autorizó su uso contra el destino. La declaración queda registrada con fecha; activar sin una autorización real es responsabilidad de quien lo hace.")];
+    if (!s.configured) {
+      out.push(h("div", { class: "notice" }, "No hay ningún manejador configurado en este despliegue (", h("code", {}, "PROXYMANAGER_CHALLENGE_HANDLER"), " vacío). No hay nada que activar aquí."));
+      return out;
+    }
+    out.push(h("div", { class: "card" }, h("h2", {}, "Estado"),
+      h("p", {}, "Manejador configurado: ", h("code", {}, s.handler_name)),
+      h("p", {}, "Estado: ", h("span", { class: "badge" + (s.enabled ? "" : " bad") }, s.enabled ? "ACTIVADO" : "Desactivado")),
+      s.enabled && h("p", { class: "muted" }, `Autorizado por «${s.authorized_by}» el ${dateFull(s.declared_at)}.`),
+      s.enabled && h("p", { class: "muted" }, "Referencia declarada: ", h("code", {}, s.authorization_reference)),
+      s.enabled
+        ? h("button", { class: "danger", onclick: async () => { if (confirm("¿Desactivar el manejador de desafíos ahora mismo?")) { await api("/v1/admin/challenge-handler/disable", { method: "POST" }); render(); } } }, "Desactivar ahora")
+        : h("div", { style: "display:grid;gap:10px;max-width:520px;margin-top:10px" },
+            h("label", {}, "Quién autorizó", by), h("label", {}, "Referencia de la autorización", ref), msg,
+            h("button", { class: "primary", onclick: async () => {
+              msg.textContent = "";
+              if (!confirm("Vas a declarar quién autorizó esto y activar el manejador de desafíos. Confirma que tienes autorización real y verificable antes de continuar.")) return;
+              try { await api("/v1/admin/challenge-handler/enable", { method: "POST", body: { authorized_by: by.value, authorization_reference: ref.value } }); render(); }
+              catch (x) { msg.textContent = x.message; }
+            } }, "Declarar autorización y activar"))));
+    out.push(h("div", { class: "card" }, h("h2", {}, "Registro de activaciones"),
+      s.log.length ? h("div", { class: "tablewrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Fecha", "Acción", "Autorizado por", "Referencia"].map(t => h("th", {}, t)))),
+        h("tbody", {}, s.log.map(l => h("tr", {}, h("td", {}, dateFull(l.at)), h("td", {}, l.action === "enable" ? "Activación" : "Desactivación"), h("td", {}, l.authorized_by || "—"), h("td", {}, l.authorization_reference || "—")))))) : h("p", { class: "lead" }, "Sin movimientos todavía.")));
+    return out;
+  }],
   overview: ["Resumen", async () => {
     const [s, proxies] = await Promise.all([api("/v1/admin/stats"), api("/v1/proxies")]);
     const active = proxies.filter(p => p.enabled).length, healthy = proxies.filter(p => p.last_check && p.last_check.success).length;
@@ -88,7 +119,7 @@ const PAGES = {
         h("p", { class: "muted" }, "Usa un número negativo para restar. Los pagos en línea aún no están conectados: las recargas son manuales."))];
   }],
 };
-const ORDER = [["overview", "Resumen"], ["proxies", "Proxies"], ["clientes", "Clientes"]];
+const ORDER = [["overview", "Resumen"], ["proxies", "Proxies"], ["clientes", "Clientes"], ["desafios", "Desafíos"]];
 async function render() {
   const id = (location.hash || "#overview").slice(1), key = PAGES[id] ? id : "overview", page = PAGES[key];
   const content = h("div", { class: "content" }, h("p", { class: "lead" }, "Cargando…"));

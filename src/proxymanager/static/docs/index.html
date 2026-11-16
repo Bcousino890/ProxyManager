@@ -71,7 +71,7 @@
 <tr><td><code>session_id</code></td><td>string</td><td>Sesión creada con <code>POST /v1/sessions</code>. Ver <a href="#sesiones">Sesiones</a>.</td></tr>
 <tr><td><code>use_proxy</code></td><td>bool</td><td>Enruta por un proxy del catálogo.</td></tr>
 <tr><td><code>country</code></td><td>string (2)</td><td>Código de país del proxy, p. ej. <code>ES</code>. Implica <code>use_proxy</code>.</td></tr>
-<tr><td><code>solve_challenges</code></td><td>bool</td><td>Pide al servicio que intente gestionar un desafío detectado. <strong>Solo tiene efecto si el operador ha conectado un manejador</strong>; en caso contrario se ignora y el desafío se informa en <code>challenge</code>.</td></tr>
+<tr><td><code>solve_challenges</code></td><td>bool</td><td>Pide al servicio que intente gestionar un desafío detectado. <strong>Solo tiene efecto si el operador conectó un manejador y además declaró y activó su autorización</strong>; en caso contrario se ignora y el desafío se informa en <code>challenge</code> (con <code>pending_authorization: true</code> si falta la declaración).</td></tr>
 </table>
 <p>Las redirecciones <strong>no se siguen</strong>: recibes el <code>3xx</code> y su cabecera <code>Location</code> y decides tú.</p>
 

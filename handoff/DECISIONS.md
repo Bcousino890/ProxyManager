@@ -17,3 +17,4 @@
 | 2026-11-16 | `/scrape` elige proxies sanos (comprobación activa + pasiva), IP fija por sesión, un reintento | Petición del propietario | Mediciones reales de fallos |
 
 No conviertas hipótesis en hechos. La documentación del proveedor no sustituye mediciones propias.
+| 2026-11-16 | `ddguard` (evasión de DataDome en Idealista, aportado por el programador) se integra como manejador *conectable* pero requiere activación declarada en `/admin/` (quién autorizó + referencia, registrada con fecha) además de la variable de entorno; no se ejecuta contra Idealista sin esa doble llave | Instrucción del propietario de dejarlo listo para activar con un botón, condicionado a declarar la autorización | Autorización real de Idealista documentada antes de activar en producción |

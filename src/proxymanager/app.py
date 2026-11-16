@@ -21,6 +21,7 @@ from .accounts import AccountError, Accounts, SlidingWindow
 from .transport import PinnedProxyTransport
 from .importer import import_proxy_text
 from .challenges import ChallengeContext, ChallengeHandler, load_handler
+from .authorization import AuthorizationError, ChallengeAuthorization
 import asyncio
 from .fetch import classify
 
@@ -90,6 +91,11 @@ class ProxyImport(BaseModel):
     country: str = Field(default="ZZ", min_length=2, max_length=2)
 
 
+class ChallengeAuthorize(BaseModel):
+    authorized_by: str = Field(min_length=1, max_length=200)
+    authorization_reference: str = Field(min_length=1, max_length=4000)
+
+
 class CreditGrant(BaseModel):
     email: str
     credits: int
@@ -106,6 +112,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     proxies = ProxyStore(settings.db_path, settings.credential_key)
     health_checks = ProxyHealth(proxies, settings, transport)
     handler = challenge_handler or load_handler(settings.challenge_handler)
+    authorization = ChallengeAuthorization(settings.db_path)
     @asynccontextmanager
     async def lifespan(app):
         health_checks.recover()
@@ -300,8 +307,11 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             health_checks.record(proxy_id, True, "scrape")
         result["proxy_id"] = proxy_id if proxied else None
         if result.get("validation", {}).get("challenge_detected"):
+            auth_enabled = handler is not None and authorization.status()["enabled"]
             info = {"detected": True, "handler": handler.name if handler else None, "handled": False, "resolved": False}
-            if handler and request.solve_challenges:
+            if handler and request.solve_challenges and not auth_enabled:
+                info["pending_authorization"] = True
+            if handler and request.solve_challenges and auth_enabled:
                 info["handled"] = True
                 try:
                     resolution = await handler.handle(ChallengeContext(request.url, request.method, result.get("status_code"), result.get("headers", {}), result.get("html", ""), request.session_id, proxy_id, cookie_header))
@@ -410,6 +420,24 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         return await run_scrape(request, user["id"], user["id"], None)
 
     # --- administración de clientes (clave de administración) ----------
+    @app.get("/v1/admin/challenge-handler")
+    def challenge_handler_status(_: str = Depends(administrator)):
+        return {"configured": handler is not None, "handler_name": handler.name if handler else None,
+                **authorization.status(), "log": authorization.log(20)}
+
+    @app.post("/v1/admin/challenge-handler/enable")
+    def enable_challenge_handler(body: ChallengeAuthorize, _: str = Depends(administrator)):
+        if handler is None:
+            raise HTTPException(409, "No hay ningún manejador de desafíos configurado (PROXYMANAGER_CHALLENGE_HANDLER vacío)")
+        try:
+            return authorization.enable(body.authorized_by, body.authorization_reference)
+        except AuthorizationError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/admin/challenge-handler/disable")
+    def disable_challenge_handler(_: str = Depends(administrator)):
+        return authorization.disable()
+
     @app.get("/v1/admin/stats")
     def admin_stats(_: str = Depends(administrator)):
         return accounts.stats()

@@ -286,17 +286,38 @@ class FakeHandler:
         return ChallengeResolution(self.resolve, html="contenido real", status_code=200)
 
 
-def test_challenge_handler_plugs_in_and_is_opt_in(tmp_path, monkeypatch):
+def test_challenge_handler_requires_declared_authorization(tmp_path, monkeypatch):
     public_dns(monkeypatch)
     transport = httpx.MockTransport(lambda r: httpx.Response(403, text="captcha required"))
     fake = FakeHandler()
+    admin = {"X-API-Key": "admin-secret"}
     with TestClient(create_app(make(tmp_path, credits_challenge_resolved=4, free_credits=50), transport=transport, challenge_handler=fake)) as c:
         h = {"X-API-Key": signup(c)}
         no_opt = c.post("/scrape", headers=h, json={"url": "https://example.org/"}).json()
         assert no_opt["success"] is False and not fake.calls and no_opt["challenge"]["handled"] is False
+        still_off = c.post("/scrape", headers=h, json={"url": "https://example.org/", "solve_challenges": True}).json()
+        assert still_off["success"] is False and not fake.calls and still_off["challenge"]["pending_authorization"] is True
+        status = c.get("/v1/admin/challenge-handler", headers=admin).json()
+        assert status == {"configured": True, "handler_name": "fake", "enabled": False, "authorized_by": None, "authorization_reference": None, "declared_at": None, "log": []}
+        assert c.post("/v1/admin/challenge-handler/enable", headers=h, json={"authorized_by": "x", "authorization_reference": "y"}).status_code == 403
+        bad = c.post("/v1/admin/challenge-handler/enable", headers=admin, json={"authorized_by": "", "authorization_reference": "y"})
+        assert bad.status_code == 422
+        enabled = c.post("/v1/admin/challenge-handler/enable", headers=admin, json={"authorized_by": "Responsable del proyecto", "authorization_reference": "Correo de Idealista Legal, 2026-11-20"})
+        assert enabled.status_code == 200 and enabled.json()["enabled"] is True
         r = c.post("/scrape", headers=h, json={"url": "https://example.org/", "solve_challenges": True}).json()
         assert r["success"] is True and r["html"] == "contenido real" and r["credits_charged"] == 5  # 1 base + 4 extra
         assert r["challenge"]["resolved"] is True and len(fake.calls) == 1
+        log = c.get("/v1/admin/challenge-handler", headers=admin).json()
+        assert log["enabled"] is True and log["log"][0]["action"] == "enable" and log["log"][0]["authorized_by"] == "Responsable del proyecto"
+        assert c.post("/v1/admin/challenge-handler/disable", headers=admin).json()["enabled"] is False
+        off_again = c.post("/scrape", headers=h, json={"url": "https://example.org/", "solve_challenges": True}).json()
+        assert off_again["success"] is False and off_again["challenge"]["pending_authorization"] is True
+
+
+def test_enable_requires_a_configured_handler(tmp_path):
+    with TestClient(create_app(make(tmp_path))) as c:
+        r = c.post("/v1/admin/challenge-handler/enable", headers={"X-API-Key": "admin-secret"}, json={"authorized_by": "x", "authorization_reference": "y"})
+        assert r.status_code == 409
 
 
 def test_challenge_handler_failure_is_contained(tmp_path, monkeypatch):
@@ -304,6 +325,7 @@ def test_challenge_handler_failure_is_contained(tmp_path, monkeypatch):
     transport = httpx.MockTransport(lambda r: httpx.Response(403, text="captcha"))
     with TestClient(create_app(make(tmp_path), transport=transport, challenge_handler=FakeHandler(boom=True))) as c:
         h = {"X-API-Key": signup(c)}
+        c.post("/v1/admin/challenge-handler/enable", headers={"X-API-Key": "admin-secret"}, json={"authorized_by": "x", "authorization_reference": "y"})
         r = c.post("/scrape", headers=h, json={"url": "https://example.org/", "solve_challenges": True})
         assert r.status_code == 200 and r.json()["success"] is False and "secreto-interno" not in r.text
         assert r.json()["challenge"]["error"] == "handler_failed"
