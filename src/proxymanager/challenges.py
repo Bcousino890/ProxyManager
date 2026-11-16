@@ -55,7 +55,7 @@ def load_handler(spec: str) -> ChallengeHandler | None:
     if not module_name or not attr:
         raise ValueError("PROXYMANAGER_CHALLENGE_HANDLER debe tener el formato modulo:fabrica")
     target = getattr(importlib.import_module(module_name), attr)
-    handler = target() if callable(target) and not hasattr(target, "handle") else target
+    handler = target() if isinstance(target, type) or (callable(target) and not hasattr(target, "handle")) else target
     if not hasattr(handler, "handle") or not hasattr(handler, "name"):
         raise ValueError("El manejador debe tener los atributos name y handle()")
     return handler

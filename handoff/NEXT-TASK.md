@@ -1,8 +1,8 @@
 # Siguiente entrega
 
-Plataforma de cliente (cuentas, claves, créditos, consola `/app/`, docs `/docs/`) implementada y probada localmente; ver STATUS.md (16 nov). Siguiente:
+Todo el código para pruebas reales está listo (ver STATUS.md, 16 nov). Pasos de quien continúe:
 
-1. Desplegar con `deploy/README.md` en el VPS del propietario (pedir IP/acceso; no comprar nada sin autorización) y verificar HTTPS, `/app/`, `/docs/` y un `/scrape` real a un destino autorizado.
-2. Decidir con el propietario la política de uso aceptable y activar `PROXYMANAGER_ALLOW_ANY_PUBLIC_HOST` solo entonces.
-3. Pagos (Stripe u otro, requiere cuenta del propietario), verificación de correo y recuperación de contraseña.
-4. Salud/rotación de proxies en la selección de `/scrape`, y worker persistente para benchmarks (los límites actuales son en memoria: un solo proceso).
+1. En el VPS: `deploy/README.md` → `docker compose up -d --build` (primera construcción de imagen sin verificar) → `doctor` → `smoke`. Pedir IP/acceso al propietario; no comprar nada sin autorización.
+2. Importar las 10 conexiones en `/admin/` desde la máquina del propietario (no están en GitHub), verificar IP de salida/ASN/país antes de fijar tipo y país, y lanzar comprobaciones.
+3. El programador implementa su manejador (`docs/extending-challenge-handlers.md`) solo contra un destino/instalación DataDome **autorizados**.
+4. Pendiente de producto: pagos, verificación de correo, recuperación de contraseña, auditoría de acciones de administración, política de uso aceptable aprobada antes de `PROXYMANAGER_ALLOW_ANY_PUBLIC_HOST=true`.

@@ -76,3 +76,11 @@ Panel con la clave `PROXYMANAGER_ADMIN_KEY` (guardada solo en `sessionStorage`):
 - Selección: activos, sin fallo en los últimos `PROXYMANAGER_HEALTH_TTL_SECONDS`, prefiriendo los que superaron una comprobación. Fallos de transporte reales se registran (comprobación pasiva) y apartan el proxy; un éxito lo rehabilita. Un reintento con otro proxy. IP fija por `session_id` (tabla `session_proxy`, purgada al borrar la sesión). Barrido periódico opcional con `PROXYMANAGER_HEALTH_URL` + `PROXYMANAGER_HEALTH_INTERVAL_SECONDS`. Sin proxies sanos: 422.
 - `src/proxymanager/challenges.py`: interfaz `ChallengeHandler`, sin implementación; ver `docs/extending-challenge-handlers.md`. Respuesta incluye `challenge` y `proxy_id`.
 - Probado: `pytest -q` → **45 passed** (transporte simulado). No probado con proxies reales ni barrido periódico en vivo; la selección no distingue fallos del destino de fallos del proxy salvo por error de transporte.
+
+## Avance (16 noviembre 2026): herramientas para pruebas reales
+
+- `python -m proxymanager.doctor` (diagnóstico de configuración), `python -m proxymanager.smoke` (prueba de humo de un despliegue: salud, páginas, alta, 401, scrape directo, scrape por proxy con IP fija), `python -m proxymanager.handlercheck` (probar un manejador sin servidor). Plantilla en `examples/handler_template.py`; en Docker, `deploy/handlers/` montado en `/handlers`. Guía: `docs/real-testing.md`.
+- `PROXYMANAGER_CA_BUNDLE` permite una CA propia manteniendo la verificación TLS (necesario en este sandbox, cuyo proxy intercepta TLS).
+- Corregido: `load_handler` no instanciaba clases.
+- **Evidencia real (16 nov 2026, sandbox):** servidor local + `smoke` contra `https://example.com/` con `expected_text` → HTTP 200 validado, 1 crédito, 75 ms, TLS verificado. `pytest -q` → **48 passed**. `docker compose config` válido; **la imagen Docker no se pudo construir aquí (sin daemon)**.
+- Sin probar: proxies reales (las 10 conexiones del propietario solo existen en su máquina), despliegue en VPS, HTTPS con sslip.io/Let's Encrypt, DataDome.

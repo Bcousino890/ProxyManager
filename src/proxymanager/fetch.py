@@ -1,5 +1,6 @@
 import ipaddress
 import socket
+import ssl
 import time
 from collections.abc import Callable
 from urllib.parse import urlsplit, urlunsplit
@@ -60,7 +61,7 @@ async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTranspor
     pinned_url, host = guard_url(url, settings)
     started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(transport=transport, timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False) as client:
+        async with httpx.AsyncClient(transport=transport, timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False, **({"verify": ssl.create_default_context(cafile=settings.ca_bundle)} if settings.ca_bundle and transport is None else {})) as client:
             out_headers = {k: v for k, v in (headers or {}).items() if k.lower() != "cookie"}
             out_headers["Host"] = host
             cookies = "; ".join(p for p in ((headers or {}).get(next((k for k in (headers or {}) if k.lower() == "cookie"), ""), ""), cookie_header) if p)

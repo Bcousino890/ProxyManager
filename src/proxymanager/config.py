@@ -30,6 +30,7 @@ class Settings:
     health_interval_seconds: int = 0
     health_ttl_seconds: int = 3600
     challenge_handler: str = ""
+    ca_bundle: str = ""
     credits_challenge_resolved: int = 0
 
     def __post_init__(self):
@@ -58,6 +59,7 @@ class Settings:
             health_url=os.getenv("PROXYMANAGER_HEALTH_URL", ""),
             health_interval_seconds=int(os.getenv("PROXYMANAGER_HEALTH_INTERVAL_SECONDS", "0")),
             health_ttl_seconds=int(os.getenv("PROXYMANAGER_HEALTH_TTL_SECONDS", "3600")),
+            ca_bundle=os.getenv("PROXYMANAGER_CA_BUNDLE", ""),
             challenge_handler=os.getenv("PROXYMANAGER_CHALLENGE_HANDLER", ""),
             credits_challenge_resolved=int(os.getenv("PROXYMANAGER_CREDITS_CHALLENGE_RESOLVED", "0")),
             health_concurrency=int(os.getenv("PROXYMANAGER_HEALTH_CONCURRENCY", "2")),

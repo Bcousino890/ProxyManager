@@ -6,8 +6,10 @@ services:
     environment:
       PROXYMANAGER_DB_PATH: /data/proxymanager.db
       PROXYMANAGER_COOKIE_SECURE: "true"
+      PYTHONPATH: /handlers
     volumes:
       - pmdata:/data
+      - ./handlers:/handlers:ro
     expose:
       - "8000"
     healthcheck:
