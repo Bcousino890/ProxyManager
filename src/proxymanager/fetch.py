@@ -22,7 +22,9 @@ def guard_url(url: str, settings: Settings) -> tuple[str, str]:
         raise DestinationRejected("URL inválida") from exc
     if parsed.scheme != "https" or not host or parsed.username or parsed.password or parsed.fragment or port not in (None, 443):
         raise DestinationRejected("Solo se permiten URLs HTTPS estándar")
-    if host not in settings.allowed_hosts:
+    if any(host == b or host.endswith("." + b) for b in settings.blocked_hosts):
+        raise DestinationRejected("Destino bloqueado por la política del servicio")
+    if host not in settings.allowed_hosts and not (settings.allow_any_public_host and "." in host):
         raise DestinationRejected("Destino no autorizado")
     try:
         literal = ipaddress.ip_address(host)
@@ -43,15 +45,18 @@ def guard_url(url: str, settings: Settings) -> tuple[str, str]:
 
 
 async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTransport | None = None,
-                cookie_header: str = "", on_set_cookie: Callable[[list[str]], None] | None = None) -> dict:
+                cookie_header: str = "", on_set_cookie: Callable[[list[str]], None] | None = None,
+                method: str = "GET", headers: dict[str, str] | None = None, body: bytes | None = None, expected_text: str | None = None) -> dict:
     pinned_url, host = guard_url(url, settings)
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(transport=transport, timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False) as client:
-            headers = {"Host": host}
-            if cookie_header:
-                headers["Cookie"] = cookie_header
-            request = client.build_request("GET", pinned_url, headers=headers, extensions={"sni_hostname": host})
+            out_headers = {k: v for k, v in (headers or {}).items() if k.lower() != "cookie"}
+            out_headers["Host"] = host
+            cookies = "; ".join(p for p in ((headers or {}).get(next((k for k in (headers or {}) if k.lower() == "cookie"), ""), ""), cookie_header) if p)
+            if cookies:
+                out_headers["Cookie"] = cookies
+            request = client.build_request(method, pinned_url, headers=out_headers, content=body, extensions={"sni_hostname": host})
             response = await client.send(request, stream=True)
             try:
                 if on_set_cookie:
@@ -64,14 +69,16 @@ async def fetch(url: str, settings: Settings, transport: httpx.AsyncBaseTranspor
                 html = content.decode(response.encoding or "utf-8", errors="replace")
                 lowered = html.lower()
                 challenge = any(marker in lowered for marker in ("captcha", "datadome", "device check"))
-                expected = bool(settings.expected_text and settings.expected_text in html)
-                success = response.status_code == 200 and expected and not challenge
+                required = settings.expected_text if expected_text is None else expected_text
+                expected = (required in html) if required else True
+                success = 200 <= response.status_code < 300 and expected and not challenge
                 return {
                     "success": success,
                     "status_code": response.status_code,
                     "content_type": response.headers.get("content-type", ""),
                     "duration_ms": round((time.perf_counter() - started) * 1000, 2),
                     "bytes_transferred": len(content),
+                    "headers": {k: v for k, v in response.headers.items() if k.lower() != "set-cookie"},
                     "validation": {"content_expected": expected, "challenge_detected": challenge},
                     "html": html,
                 }

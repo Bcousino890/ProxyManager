@@ -1,0 +1,35 @@
+services:
+  api:
+    build: ..
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PROXYMANAGER_DB_PATH: /data/proxymanager.db
+      PROXYMANAGER_COOKIE_SECURE: "true"
+    volumes:
+      - pmdata:/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Define DOMAIN en deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  pmdata:
+  caddy_data:
+  caddy_config:

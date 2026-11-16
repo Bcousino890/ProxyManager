@@ -1,0 +1,6 @@
+# DOMAIN, p. ej. proxymanager.203-0-113-10.sslip.io (IP del VPS con guiones).
+# Caddy obtiene y renueva el certificado HTTPS automáticamente.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy api:8000
+}

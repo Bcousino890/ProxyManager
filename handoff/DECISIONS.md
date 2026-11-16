@@ -10,4 +10,8 @@
 
 | 2026-11-11 | AWS por horas para pruebas; proveedor mensual se decide al final | Instrucción del propietario; evita compromiso temprano | Mediciones y precio final de 30 días |
 
+| 2026-11-16 | Plataforma comercial: cuentas, claves `pm_live_` (solo hash), créditos por solicitud validada, consola `/app/`, docs `/docs/` (OpenAPI en `/api-reference`) | Instrucción del propietario: vender el servicio por API | Pasarela de pago, dominio propio o cambio de política |
+| 2026-11-16 | `PROXYMANAGER_ALLOW_ANY_PUBLIC_HOST` (por defecto **false**): permite cualquier host HTTPS público manteniendo bloqueo de IP privadas y lista `BLOCKED_HOSTS` | Un servicio comercial no puede tener allowlist fija, pero el encargo original exige autorización de destinos | El propietario aprueba la política de uso aceptable y la activa conscientemente |
+| 2026-11-16 | No se implementa evasión antibot, resolución de CAPTCHA ni rotación para esquivar bloqueos; la documentación pública lo dice | Restricción del encargo original (§1, §4) | Autorización expresa y alcance legal documentado |
+
 No conviertas hipótesis en hechos. La documentación del proveedor no sustituye mediciones propias.

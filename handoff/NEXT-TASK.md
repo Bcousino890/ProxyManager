@@ -1,7 +1,8 @@
 # Siguiente entrega
 
-TLS por proxy resuelto y verificado con diez conexiones; ver STATUS.md y el informe JSON. Cookies persistentes cifradas integradas en `/scrape` con pruebas locales. Continuar fase 2 con rate limiting, auditoría, validación de configuración y permisos antes de exponer el servicio. Revisar límites de tamaño y cantidad de cookies y hacer una prueba funcional autorizada fuera del entorno simulado.
+Plataforma de cliente (cuentas, claves, créditos, consola `/app/`, docs `/docs/`) implementada y probada localmente; ver STATUS.md (16 nov). Siguiente:
 
-El usuario confirmó VPS existente, sin DataDome. Esperando proveedor/host/usuario SSH o alias local para inspección de infraestructura. No comprar servicios. Preparar acceso académico a DataDome sin enviarlo a terceros sin autorización.
-
-Los trabajos de salud están limitados y persistidos, pero se ejecutan en un único proceso API. Al reiniciar se marcan interrumpidos; no se reintentan. Para benchmarks duraderos se necesita worker persistente con recuperación.
+1. Desplegar con `deploy/README.md` en el VPS del propietario (pedir IP/acceso; no comprar nada sin autorización) y verificar HTTPS, `/app/`, `/docs/` y un `/scrape` real a un destino autorizado.
+2. Decidir con el propietario la política de uso aceptable y activar `PROXYMANAGER_ALLOW_ANY_PUBLIC_HOST` solo entonces.
+3. Pagos (Stripe u otro, requiere cuenta del propietario), verificación de correo y recuperación de contraseña.
+4. Salud/rotación de proxies en la selección de `/scrape`, y worker persistente para benchmarks (los límites actuales son en memoria: un solo proceso).

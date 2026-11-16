@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 import sqlite3
 import uuid
 
@@ -28,3 +29,12 @@ class ProxyStore:
         with sqlite3.connect(self.db_path) as db:
             rows = db.execute("SELECT id, provider, host, port, kind, country, credentials IS NOT NULL FROM proxies ORDER BY provider, id").fetchall()
         return [dict(zip(("id", "provider", "host", "port", "kind", "country", "has_credentials"), row)) for row in rows]
+
+    def pick(self, country: str | None = None) -> str | None:
+        """Devuelve el id de un proxy al azar, filtrado por país si se indica."""
+        query, args = "SELECT id FROM proxies", ()
+        if country:
+            query, args = query + " WHERE upper(country)=?", (country.upper(),)
+        with sqlite3.connect(self.db_path) as db:
+            rows = db.execute(query, args).fetchall()
+        return secrets.choice(rows)[0] if rows else None

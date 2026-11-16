@@ -4,6 +4,10 @@ Para continuar en otra sesión de Codex o Claude Code, empieza por [handoff/STAR
 
 Plataforma académica para investigar sesiones HTTP, redes proxy, desafíos y mediciones en destinos autorizados. Esta es la **primera versión ejecutable**, no la plataforma final descrita en el encargo del TFG.
 
+## Plataforma para clientes (consola, docs y API de pago por créditos)
+
+Con el servidor en marcha: `/app/` es la consola (alta, claves API, Playground, uso, suscripción), `/docs/` la documentación pública y `/api-reference` la referencia OpenAPI. Cada cliente usa claves `pm_live_…` con créditos; el administrador concede créditos con `POST /v1/admin/credits`. Despliegue con HTTPS y dominio sslip.io en [deploy/README.md](deploy/README.md). En local por HTTP exporta `PROXYMANAGER_COOKIE_SECURE=false`. Por defecto `/scrape` sigue limitado a `PROXYMANAGER_ALLOWED_HOSTS`; `PROXYMANAGER_ALLOW_ANY_PUBLIC_HOST=true` lo abre a cualquier host HTTPS público (decisión del propietario, ver `handoff/DECISIONS.md`). No hay pasarela de pago ni garantías de disponibilidad todavía.
+
 ## Inicio local
 
 Requiere Python 3.12 o superior.
