@@ -17,7 +17,7 @@ from .storage import SessionStore
 from .cookies import CookieStore
 from .proxies import ProxyStore
 from .health import ProxyHealth, QueueFull
-from .accounts import AccountError, Accounts, SlidingWindow
+from .accounts import AccountError, Accounts, AdminAccounts, SlidingWindow
 from .transport import PinnedProxyTransport
 from .importer import import_proxy_text
 from .challenges import ChallengeContext, ChallengeHandler, load_handler
@@ -27,6 +27,7 @@ from .fetch import classify
 
 STATIC = Path(__file__).parent / "static"
 SESSION_COOKIE = "pm_session"
+ADMIN_SESSION_COOKIE = "pm_admin_session"
 FORBIDDEN_HEADERS = {"host", "content-length", "connection", "transfer-encoding", "te", "upgrade", "proxy-authorization", "proxy-connection", "keep-alive", "x-forwarded-for", "x-real-ip"}
 
 
@@ -96,6 +97,24 @@ class ChallengeAuthorize(BaseModel):
     authorization_reference: str = Field(min_length=1, max_length=4000)
 
 
+class AdminBootstrap(BaseModel):
+    master_key: str
+    email: str
+    name: str = Field(min_length=1, max_length=120)
+    password: str
+
+
+class AdminCredentials(BaseModel):
+    email: str
+    password: str
+
+
+class AdminInvite(BaseModel):
+    email: str
+    name: str = Field(min_length=1, max_length=120)
+    password: str
+
+
 class CreditGrant(BaseModel):
     email: str
     credits: int
@@ -107,6 +126,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     store = SessionStore(settings.db_path)
     cookies = CookieStore(settings.db_path, settings.credential_key, store, settings.allowed_hosts, settings.allow_any_public_host)
     accounts = Accounts(settings.db_path, settings.free_credits)
+    admin_accounts = AdminAccounts(settings.db_path)
     scrape_limit = SlidingWindow(settings.rate_limit_per_minute)
     login_limit = SlidingWindow(settings.login_attempts_per_minute)
     proxies = ProxyStore(settings.db_path, settings.credential_key)
@@ -139,18 +159,21 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             response.headers.setdefault("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'")
         return response
 
-    def authenticated(x_api_key: str | None = Header(default=None)) -> str:
-        if not x_api_key or not any(key and secrets.compare_digest(x_api_key, key) for key in (settings.evaluator_key, settings.admin_key)):
-            raise HTTPException(status_code=401, detail="Clave API inválida")
-        return store.owner_id(x_api_key)
+    def authenticated(request: Request, x_api_key: str | None = Header(default=None)) -> str:
+        if x_api_key and any(key and secrets.compare_digest(x_api_key, key) for key in (settings.evaluator_key, settings.admin_key)):
+            return store.owner_id(x_api_key)
+        admin = admin_accounts.user_for_token(request.cookies.get(ADMIN_SESSION_COOKIE, ""))
+        if admin:
+            return "admin:" + (admin["id"] or "clave-maestra")
+        raise HTTPException(status_code=401, detail="Clave API inválida")
 
-    def caller(x_api_key: str | None = Header(default=None)) -> Caller:
+    def caller(request: Request, x_api_key: str | None = Header(default=None)) -> Caller:
         """Clave de cliente (facturada) o clave interna de evaluación/administración."""
         if x_api_key and x_api_key.startswith("pm_live_"):
             key = accounts.authenticate_key(x_api_key)
             if key:
                 return Caller(owner=key["user_id"], user_id=key["user_id"], key=key)
-        return Caller(owner=authenticated(x_api_key))
+        return Caller(owner=authenticated(request, x_api_key))
 
     def client_ip(request: Request) -> str:
         forwarded = request.headers.get("x-forwarded-for", "")
@@ -170,10 +193,22 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     def start_web_session(response: Response, token: str):
         response.set_cookie(SESSION_COOKIE, token, max_age=accounts.web_ttl, httponly=True, secure=settings.cookie_secure, samesite="lax", path="/")
 
-    def administrator(x_api_key: str | None = Header(default=None)) -> str:
-        if not x_api_key or not settings.admin_key or not secrets.compare_digest(x_api_key, settings.admin_key):
-            raise HTTPException(status_code=403, detail="Se requiere clave de administración")
-        return store.owner_id(x_api_key)
+    def admin_token(request: Request) -> str:
+        return request.cookies.get(ADMIN_SESSION_COOKIE, "")
+
+    def administrator(request: Request, x_api_key: str | None = Header(default=None)) -> dict:
+        """Clave maestra (PROXYMANAGER_ADMIN_KEY, por cabecera) o sesión de un administrador con nombre."""
+        if x_api_key and settings.admin_key and secrets.compare_digest(x_api_key, settings.admin_key):
+            return {"id": None, "email": None, "name": "Clave maestra"}
+        admin = admin_accounts.user_for_token(admin_token(request))
+        if admin is None:
+            raise HTTPException(status_code=403, detail="Se requiere clave de administración o iniciar sesión como administrador")
+        if request.method not in ("GET", "HEAD") and request.headers.get("x-pm-csrf") != "1":
+            raise HTTPException(403, "Falta la cabecera X-PM-CSRF")
+        return admin
+
+    def start_admin_session(response: Response, token: str):
+        response.set_cookie(ADMIN_SESSION_COOKIE, token, max_age=admin_accounts.web_ttl, httponly=True, secure=settings.cookie_secure, samesite="lax", path="/")
 
     @app.get("/", include_in_schema=False)
     def root():
@@ -453,6 +488,60 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @app.post("/v1/admin/challenge-handler/disable")
     def disable_challenge_handler(_: str = Depends(administrator)):
         return authorization.disable()
+
+    @app.get("/v1/admin/bootstrap-status")
+    def admin_bootstrap_status():
+        return {"needs_bootstrap": admin_accounts.count() == 0}
+
+    @app.post("/v1/admin/register", status_code=201)
+    def admin_register(body: AdminBootstrap, response: Response, request: Request):
+        if not login_limit.allow("admin-register|" + client_ip(request)):
+            raise HTTPException(429, "Demasiados intentos")
+        if not settings.admin_key or not secrets.compare_digest(body.master_key, settings.admin_key):
+            raise HTTPException(403, "Clave maestra incorrecta")
+        try:
+            admin = admin_accounts.bootstrap(body.email, body.name, body.password)
+        except AccountError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        start_admin_session(response, admin_accounts.login(body.email, body.password))
+        return admin
+
+    @app.post("/v1/admin/login")
+    def admin_login(body: AdminCredentials, response: Response, request: Request):
+        if not login_limit.allow(f"admin-login|{client_ip(request)}|{body.email.lower()}"):
+            raise HTTPException(429, "Demasiados intentos; espera un minuto")
+        token = admin_accounts.login(body.email, body.password)
+        if token is None:
+            raise HTTPException(401, "Correo o contraseña incorrectos")
+        start_admin_session(response, token)
+        return {"ok": True}
+
+    @app.post("/v1/admin/logout", status_code=204)
+    def admin_logout(request: Request, response: Response):
+        admin_accounts.logout(admin_token(request))
+        response.delete_cookie(ADMIN_SESSION_COOKIE, path="/")
+
+    @app.get("/v1/admin/me")
+    def admin_me(acting: dict = Depends(administrator)):
+        return acting
+
+    @app.get("/v1/admin/team")
+    def admin_team(_: dict = Depends(administrator)):
+        return admin_accounts.list()
+
+    @app.post("/v1/admin/team", status_code=201)
+    def admin_team_invite(body: AdminInvite, acting: dict = Depends(administrator)):
+        try:
+            return admin_accounts.invite(body.email, body.name, body.password, acting.get("id") or "clave-maestra")
+        except AccountError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.delete("/v1/admin/team/{admin_id}", status_code=204)
+    def admin_team_remove(admin_id: str, acting: dict = Depends(administrator)):
+        if acting.get("id") == admin_id:
+            raise HTTPException(400, "No puedes eliminar tu propia cuenta de administrador; pide a otro administrador que lo haga")
+        if not admin_accounts.remove(admin_id):
+            raise HTTPException(404, "Administrador no encontrado")
 
     @app.get("/v1/admin/stats")
     def admin_stats(_: str = Depends(administrator)):

@@ -15,7 +15,9 @@ function h(tag, attrs, ...kids) {
   return el;
 }
 async function api(path, opts = {}) {
-  const res = await fetch(path, { method: opts.method || "GET", headers: { "Content-Type": "application/json", "X-API-Key": KEY }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const headers = { "Content-Type": "application/json", "X-PM-CSRF": "1" };
+  if (KEY) headers["X-API-Key"] = KEY;   // acceso de emergencia con la clave maestra; si no, va la cookie de sesión
+  const res = await fetch(path, { method: opts.method || "GET", credentials: "same-origin", headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
   if (res.status === 204) return null;
   let data = null; try { data = await res.json(); } catch (_) {}
   if (!res.ok) { const e = new Error(typeof (data && data.detail) === "string" ? data.detail : "Error " + res.status); e.status = res.status; throw e; }
@@ -26,15 +28,58 @@ const date = ts => ts ? new Date(ts * 1000).toLocaleString("es-ES", { dateStyle:
 const KINDS = { unknown: "Sin verificar", isp: "ISP", residential: "Residencial", datacenter: "Datacenter" };
 const stat = (label, value, sub) => h("div", { class: "card stat" }, h("span", {}, label), h("b", {}, value), h("span", {}, sub || ""));
 
-function loginScreen(msg) {
+function masterKeyScreen(err) {
   const key = h("input", { type: "password", autocomplete: "off", required: true });
-  const err = h("div", { class: "err" }, msg || "");
-  root.replaceChildren(h("div", { class: "auth" }, h("form", { class: "card", onsubmit: async e => {
+  const msg = h("div", { class: "err" }, err || "");
+  return h("form", { class: "card", onsubmit: async e => {
     e.preventDefault(); KEY = key.value;
     try { await api("/v1/admin/stats"); try { sessionStorage.setItem("pm_admin", KEY); } catch (_) {} start(); }
-    catch (x) { KEY = ""; err.textContent = x.status === 403 || x.status === 401 ? "Clave de administración incorrecta" : x.message; }
-  } }, h("div", { class: "brand" }, h("span", { class: "logo" }, "P"), "ProxyManager · Admin"), h("h1", {}, "Acceso de administrador"),
-    h("label", {}, "Clave de administración", key), err, h("button", { class: "primary", type: "submit" }, "Entrar"))));
+    catch (x) { KEY = ""; msg.textContent = x.status === 403 || x.status === 401 ? "Clave de administración incorrecta" : x.message; }
+  } }, h("h1", {}, "Acceso con clave maestra"),
+    h("p", { class: "muted" }, "Para situaciones de emergencia, o para crear el primer administrador con nombre."),
+    h("label", {}, "Clave de administración (PROXYMANAGER_ADMIN_KEY)", key), msg,
+    h("button", { class: "primary", type: "submit" }, "Entrar"),
+    h("p", {}, h("a", { href: "#", onclick: e => { e.preventDefault(); loginScreen(); } }, "← Volver al inicio de sesión normal")));
+}
+
+function bootstrapScreen() {
+  const masterKey = h("input", { type: "password", autocomplete: "off", required: true });
+  const name = h("input", { autocomplete: "name", required: true, maxlength: 120 });
+  const email = h("input", { type: "email", autocomplete: "email", required: true });
+  const pass = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 10 });
+  const err = h("div", { class: "err" });
+  return h("form", { class: "card", onsubmit: async e => {
+    e.preventDefault(); err.textContent = "";
+    try {
+      await api("/v1/admin/register", { method: "POST", body: { master_key: masterKey.value, name: name.value, email: email.value, password: pass.value } });
+      start();
+    } catch (x) { err.textContent = x.message; }
+  } }, h("h1", {}, "Crear el primer administrador"),
+    h("p", { class: "muted" }, "Todavía no hay ningún administrador con nombre en este despliegue. Usa la clave maestra (",
+      h("code", {}, "PROXYMANAGER_ADMIN_KEY"), ", definida en el servidor) una sola vez para crear el tuyo."),
+    h("label", {}, "Clave de administración (PROXYMANAGER_ADMIN_KEY)", masterKey),
+    h("label", {}, "Tu nombre", name), h("label", {}, "Correo electrónico", email),
+    h("label", {}, "Contraseña (mínimo 10 caracteres)", pass), err,
+    h("button", { class: "primary", type: "submit" }, "Crear administrador y entrar"));
+}
+
+function loginScreen() {
+  root.replaceChildren(h("div", { class: "auth" }, h("p", {}, "Cargando…")));
+  api("/v1/admin/bootstrap-status").then(s => {
+    if (s.needs_bootstrap) { root.replaceChildren(h("div", { class: "auth" }, h("div", { class: "brand" }, h("span", { class: "logo" }, "P"), "ProxyManager · Admin"), bootstrapScreen())); return; }
+    const email = h("input", { type: "email", autocomplete: "email", required: true });
+    const pass = h("input", { type: "password", autocomplete: "current-password", required: true });
+    const err = h("div", { class: "err" });
+    const form = h("form", { class: "card", onsubmit: async e => {
+      e.preventDefault(); err.textContent = "";
+      try { await api("/v1/admin/login", { method: "POST", body: { email: email.value, password: pass.value } }); start(); }
+      catch (x) { err.textContent = x.status === 401 ? "Correo o contraseña incorrectos" : x.message; }
+    } }, h("h1", {}, "Acceso de administrador"),
+      h("label", {}, "Correo electrónico", email), h("label", {}, "Contraseña", pass), err,
+      h("button", { class: "primary", type: "submit" }, "Entrar"),
+      h("p", {}, h("a", { href: "#", onclick: e => { e.preventDefault(); root.replaceChildren(h("div", { class: "auth" }, h("div", { class: "brand" }, h("span", { class: "logo" }, "P"), "ProxyManager · Admin"), masterKeyScreen())); } }, "Entrar con la clave maestra")));
+    root.replaceChildren(h("div", { class: "auth" }, h("div", { class: "brand" }, h("span", { class: "logo" }, "P"), "ProxyManager · Admin"), form));
+  }).catch(x => root.replaceChildren(h("div", { class: "auth" }, h("div", { class: "notice bad" }, x.message))));
 }
 
 const dateFull = ts => ts ? new Date(ts * 1000).toLocaleString("es-ES", { dateStyle: "full", timeStyle: "short" }) : "—";
@@ -118,17 +163,42 @@ const PAGES = {
       h("div", { class: "card" }, h("h2", {}, "Conceder créditos"), h("div", { class: "row" }, email, credits, plan, h("button", { class: "primary", onclick: () => grant(email.value, credits.value, plan.value) }, "Aplicar")), msg,
         h("p", { class: "muted" }, "Usa un número negativo para restar. Los pagos en línea aún no están conectados: las recargas son manuales."))];
   }],
+  equipo: ["Equipo", async () => {
+    const me = await api("/v1/admin/me");
+    const team = await api("/v1/admin/team");
+    const byId = Object.fromEntries(team.map(a => [a.id, a]));
+    const name = h("input", { placeholder: "Nombre", maxlength: 120 });
+    const email = h("input", { type: "email", placeholder: "Correo electrónico" });
+    const pass = h("input", { type: "password", placeholder: "Contraseña (mínimo 10 caracteres)", minlength: 10 });
+    const msg = h("div", { class: "err" });
+    return [
+      h("p", { class: "lead" }, me.id ? `Sesión iniciada como ${me.name} (${me.email}).` : "Sesión iniciada con la clave maestra."),
+      h("div", { class: "card" }, h("h2", {}, `Administradores · ${team.length}`),
+        h("div", { class: "tablewrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Nombre", "Correo", "Invitado por", "Alta", ""].map(t => h("th", {}, t)))),
+          h("tbody", {}, team.map(a => h("tr", {},
+            h("td", {}, a.name, a.id === me.id ? " (tú)" : ""), h("td", {}, a.email),
+            h("td", {}, a.created_by === "clave-maestra" ? "Clave maestra" : (a.created_by && byId[a.created_by] ? byId[a.created_by].name : "—")),
+            h("td", {}, date(a.created_at)),
+            h("td", {}, a.id === me.id ? null : h("button", { class: "small danger", onclick: async () => { if (confirm(`¿Eliminar a ${a.name} como administrador?`)) { await api("/v1/admin/team/" + a.id, { method: "DELETE" }); render(); } } }, "Eliminar"))))))),
+        h("div", { class: "row", style: "margin-top:16px" }, name, email, pass,
+          h("button", { class: "primary", onclick: async () => { msg.textContent = ""; try { await api("/v1/admin/team", { method: "POST", body: { name: name.value, email: email.value, password: pass.value } }); render(); } catch (x) { msg.textContent = x.message; } } }, "Invitar")),
+        msg)];
+  }],
 };
-const ORDER = [["overview", "Resumen"], ["proxies", "Proxies"], ["clientes", "Clientes"], ["desafios", "Desafíos"]];
+const ORDER = [["overview", "Resumen"], ["proxies", "Proxies"], ["clientes", "Clientes"], ["desafios", "Desafíos"], ["equipo", "Equipo"]];
 async function render() {
   const id = (location.hash || "#overview").slice(1), key = PAGES[id] ? id : "overview", page = PAGES[key];
   const content = h("div", { class: "content" }, h("p", { class: "lead" }, "Cargando…"));
   root.replaceChildren(h("div", { class: "layout" }, h("aside", {}, h("div", { class: "brand" }, h("span", { class: "logo" }, "P"), "Admin"),
     h("nav", {}, ORDER.map(([k, l]) => h("a", { href: "#" + k, class: k === key ? "on" : "" }, l)), h("a", { href: "/app/" }, "Panel de cliente ↗"), h("a", { href: "/docs/" }, "Documentación ↗")),
-    h("div", { class: "side-foot" }, h("a", { href: "#", onclick: e => { e.preventDefault(); try { sessionStorage.removeItem("pm_admin"); } catch (_) {} KEY = ""; loginScreen(); } }, "Cerrar sesión"))),
+    h("div", { class: "side-foot", id: "admin-foot" }, h("a", { href: "#", onclick: async e => { e.preventDefault(); try { await api("/v1/admin/logout", { method: "POST" }); } catch (_) {} try { sessionStorage.removeItem("pm_admin"); } catch (_) {} KEY = ""; loginScreen(); } }, "Cerrar sesión"))),
     h("main", {}, h("header", { class: "top" }, h("div", { class: "crumb" }, "Administración › ", h("b", {}, page[0])), h("button", { onclick: render }, "Refrescar")), content)));
+  api("/v1/admin/me").then(me => { const foot = document.getElementById("admin-foot"); if (foot) foot.prepend(h("div", { style: "margin-bottom:8px" }, me.name)); }).catch(() => {});
   try { content.replaceChildren(...await page[1]()); }
-  catch (x) { if (x.status === 401 || x.status === 403) return loginScreen("Sesión caducada"); content.replaceChildren(h("div", { class: "notice bad" }, x.message)); }
+  catch (x) { if (x.status === 401 || x.status === 403) return loginScreen(); content.replaceChildren(h("div", { class: "notice bad" }, x.message)); }
 }
 async function start() { window.removeEventListener("hashchange", render); window.addEventListener("hashchange", render); render(); }
-if (KEY) start(); else loginScreen();
+(async () => {
+  if (KEY) { start(); return; }
+  try { await api("/v1/admin/me"); start(); } catch (_) { loginScreen(); }
+})();

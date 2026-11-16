@@ -266,3 +266,93 @@ class Accounts:
             day = db.execute("SELECT count(*) n, coalesce(sum(success),0) ok FROM usage WHERE ts>=?", (since,)).fetchone()
             total = db.execute("SELECT count(*) n FROM usage").fetchone()
         return {"users": users["n"], "credits_granted": users["t"], "credits_used": users["u"], "requests_24h": day["n"], "successful_24h": day["ok"], "requests_total": total["n"]}
+
+
+class AdminAccounts:
+    """Cuentas de administrador con nombre propio. La clave maestra (PROXYMANAGER_ADMIN_KEY) crea
+    la primera y sigue funcionando siempre como acceso de emergencia (cabecera X-API-Key)."""
+
+    def __init__(self, db_path: str, web_session_seconds: int = 7 * 86400):
+        self.db_path, self.web_ttl = db_path, web_session_seconds
+        with self._db() as db:
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS admin_users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+                password_hash TEXT NOT NULL, created_at REAL NOT NULL, created_by TEXT);
+            CREATE TABLE IF NOT EXISTS admin_sessions (token_hash TEXT PRIMARY KEY, admin_id TEXT NOT NULL, created_at REAL NOT NULL, expires_at REAL NOT NULL);
+            """)
+        if db_path != ":memory:":
+            os.chmod(db_path, 0o600)
+
+    def _db(self):
+        db = sqlite3.connect(self.db_path)
+        db.row_factory = sqlite3.Row
+        return db
+
+    def count(self) -> int:
+        with self._db() as db:
+            return db.execute("SELECT count(*) FROM admin_users").fetchone()[0]
+
+    def _create(self, email: str, name: str, password: str, created_by: str | None) -> dict:
+        email, name = email.strip().lower(), name.strip()
+        if not _EMAIL.match(email):
+            raise AccountError("Correo electrónico inválido")
+        if not (1 <= len(name) <= 120):
+            raise AccountError("El nombre debe tener entre 1 y 120 caracteres")
+        if len(password) < 10 or len(password) > 200:
+            raise AccountError("La contraseña debe tener entre 10 y 200 caracteres")
+        admin_id = "adm_" + uuid.uuid4().hex
+        try:
+            with self._db() as db:
+                db.execute("INSERT INTO admin_users (id, email, name, password_hash, created_at, created_by) VALUES (?,?,?,?,?,?)",
+                           (admin_id, email, name, hash_password(password), time.time(), created_by))
+        except sqlite3.IntegrityError as exc:
+            raise AccountError("Ese correo ya está registrado como administrador") from exc
+        return self.get(admin_id)
+
+    def bootstrap(self, email: str, name: str, password: str) -> dict:
+        """Crea el primer administrador. Solo tiene efecto si todavía no existe ninguno."""
+        if self.count() > 0:
+            raise AccountError("Ya existe al menos un administrador; pide que te inviten desde Equipo")
+        return self._create(email, name, password, created_by=None)
+
+    def invite(self, email: str, name: str, password: str, created_by: str) -> dict:
+        return self._create(email, name, password, created_by=created_by)
+
+    def get(self, admin_id: str) -> dict | None:
+        with self._db() as db:
+            row = db.execute("SELECT id, email, name, created_at, created_by FROM admin_users WHERE id=?", (admin_id,)).fetchone()
+        return dict(row) if row else None
+
+    def list(self) -> list[dict]:
+        with self._db() as db:
+            rows = db.execute("SELECT id, email, name, created_at, created_by FROM admin_users ORDER BY created_at").fetchall()
+        return [dict(r) for r in rows]
+
+    def remove(self, admin_id: str) -> bool:
+        with self._db() as db:
+            deleted = db.execute("DELETE FROM admin_users WHERE id=?", (admin_id,)).rowcount > 0
+            if deleted:
+                db.execute("DELETE FROM admin_sessions WHERE admin_id=?", (admin_id,))
+        return deleted
+
+    def login(self, email: str, password: str) -> str | None:
+        with self._db() as db:
+            row = db.execute("SELECT id, password_hash FROM admin_users WHERE email=?", (email.strip().lower(),)).fetchone()
+        ok = verify_password(password, row["password_hash"] if row else _DUMMY)
+        if not (row and ok):
+            return None
+        token = secrets.token_urlsafe(32)
+        now = time.time()
+        with self._db() as db:
+            db.execute("DELETE FROM admin_sessions WHERE expires_at<?", (now,))
+            db.execute("INSERT INTO admin_sessions VALUES (?,?,?,?)", (_sha(token), row["id"], now, now + self.web_ttl))
+        return token
+
+    def user_for_token(self, token: str) -> dict | None:
+        with self._db() as db:
+            row = db.execute("SELECT admin_id FROM admin_sessions WHERE token_hash=? AND expires_at>?", (_sha(token), time.time())).fetchone()
+        return self.get(row["admin_id"]) if row else None
+
+    def logout(self, token: str) -> None:
+        with self._db() as db:
+            db.execute("DELETE FROM admin_sessions WHERE token_hash=?", (_sha(token),))

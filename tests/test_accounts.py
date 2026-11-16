@@ -376,3 +376,48 @@ def test_usage_log_categorizes_outcomes(tmp_path, monkeypatch):
 def test_usage_log_requires_web_session(tmp_path):
     with TestClient(create_app(make(tmp_path))) as c:
         assert c.get("/v1/account/usage/log").status_code == 401
+
+
+def test_admin_bootstrap_login_invite_and_remove(tmp_path):
+    with TestClient(create_app(make(tmp_path))) as c:
+        assert c.get("/v1/admin/bootstrap-status").json()["needs_bootstrap"] is True
+        bad_key = c.post("/v1/admin/register", json={"master_key": "wrong", "email": "a@example.com", "name": "A", "password": "correct-horse-1"})
+        assert bad_key.status_code == 403
+        root = c.post("/v1/admin/register", json={"master_key": "admin-secret", "email": "root@example.com", "name": "Benjamín", "password": "correct-horse-1"})
+        assert root.status_code == 201 and root.json()["name"] == "Benjamín"
+        assert c.get("/v1/admin/bootstrap-status").json()["needs_bootstrap"] is False
+        again = c.post("/v1/admin/register", json={"master_key": "admin-secret", "email": "x@example.com", "name": "X", "password": "correct-horse-1"})
+        assert again.status_code == 422
+        # la cookie de sesión de admin ya quedó puesta por /register; usarla para invitar
+        team = c.get("/v1/admin/team")
+        assert team.status_code == 200 and len(team.json()) == 1
+        invited = c.post("/v1/admin/team", headers=CSRF, json={"email": "ops@example.com", "name": "Operaciones", "password": "correct-horse-1"})
+        assert invited.status_code == 201 and invited.json()["created_by"] == root.json()["id"]
+        # no puede eliminarse a sí mismo
+        assert c.delete(f"/v1/admin/team/{root.json()['id']}", headers=CSRF).status_code == 400
+        assert c.delete(f"/v1/admin/team/{invited.json()['id']}", headers=CSRF).status_code == 204
+        assert len(c.get("/v1/admin/team").json()) == 1
+        # cerrar sesión y entrar con el admin invitado antes de borrarlo (recreándolo)
+        c.post("/v1/admin/logout", headers=CSRF)
+        assert c.get("/v1/admin/team").status_code == 403
+        assert c.post("/v1/admin/login", json={"email": "root@example.com", "password": "wrong"}).status_code == 401
+        assert c.post("/v1/admin/login", json={"email": "root@example.com", "password": "correct-horse-1"}).status_code == 200
+        assert c.get("/v1/admin/team").status_code == 200
+
+
+def test_admin_master_key_still_works_and_proxy_endpoints_accept_either(tmp_path):
+    with TestClient(create_app(make(tmp_path))) as c:
+        h = {"X-API-Key": "admin-secret"}
+        assert c.get("/v1/admin/stats", headers=h).status_code == 200
+        c.post("/v1/admin/register", json={"master_key": "admin-secret", "email": "root@example.com", "name": "R", "password": "correct-horse-1"})
+        c.cookies.clear()  # sin cookie de sesión, la clave maestra sigue sirviendo
+        assert c.get("/v1/admin/team", headers=h).status_code == 200
+        invited = c.post("/v1/admin/team", headers=h, json={"email": "ops@example.com", "name": "Ops", "password": "correct-horse-1"})
+        assert invited.status_code == 201 and invited.json()["created_by"] == "clave-maestra"
+
+
+def test_admin_cookie_session_requires_csrf_for_mutations(tmp_path):
+    with TestClient(create_app(make(tmp_path))) as c:
+        c.post("/v1/admin/register", json={"master_key": "admin-secret", "email": "root@example.com", "name": "R", "password": "correct-horse-1"})
+        no_csrf = c.post("/v1/admin/team", json={"email": "ops@example.com", "name": "Ops", "password": "correct-horse-1"})
+        assert no_csrf.status_code == 403
