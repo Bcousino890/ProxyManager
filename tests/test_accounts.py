@@ -179,3 +179,33 @@ def test_expected_text_per_request(tmp_path, monkeypatch):
         assert miss["success"] is False and miss["credits_charged"] == 0
         hit = c.post("/scrape", headers=h, json={"url": "https://example.org/", "expected_text": "hola"}).json()
         assert hit["success"] is True and hit["credits_charged"] == 1
+
+
+def test_admin_proxy_management(tmp_path):
+    from cryptography.fernet import Fernet
+    admin = {"X-API-Key": "admin-secret"}
+    with TestClient(create_app(make(tmp_path, credential_key=Fernet.generate_key().decode()))) as c:
+        r = c.post("/v1/proxies/import", headers=admin, json={"provider": "lote", "text": "p1.example:8080:u:p\np2.example:8080:u:p\np1.example:8080:u:p", "country": "es", "kind": "isp"})
+        assert r.json() == {"added": 2, "total": 2}
+        assert c.post("/v1/proxies/import", headers=admin, json={"provider": "lote", "text": "mal formato"}).status_code == 422
+        assert c.post("/v1/proxies/import", headers={"X-API-Key": "x"}, json={"provider": "l", "text": ""}).status_code in (401, 403)
+        listed = c.get("/v1/proxies", headers=admin).json()
+        assert {p["country"] for p in listed} == {"ES"} and all(p["enabled"] for p in listed)
+        pid = listed[0]["id"]
+        assert c.patch(f"/v1/proxies/{pid}", headers=admin, json={"enabled": False, "country": "fr"}).status_code == 204
+        changed = [p for p in c.get("/v1/proxies", headers=admin).json() if p["id"] == pid][0]
+        assert changed["enabled"] is False and changed["country"] == "FR"
+        assert c.delete(f"/v1/proxies/{pid}", headers=admin).status_code == 204
+        assert c.delete(f"/v1/proxies/{pid}", headers=admin).status_code == 404
+        assert c.get("/v1/admin/stats", headers=admin).json()["users"] == 0
+        assert c.get("/admin/").status_code == 200
+
+
+def test_disabled_proxy_not_picked(tmp_path):
+    from cryptography.fernet import Fernet
+    from proxymanager.proxies import ProxyStore
+    store = ProxyStore(str(tmp_path / "p.db"), Fernet.generate_key().decode())
+    p = store.create("x", "h.example", 8080, "isp", "ES", None, None)
+    assert store.pick("es") == p["id"]
+    store.update(p["id"], enabled=False)
+    assert store.pick("ES") is None

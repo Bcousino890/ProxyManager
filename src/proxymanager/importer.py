@@ -11,10 +11,14 @@ _HOST = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\Z")
 
 
 def import_proxy_file(path: Path, store: ProxyStore, provider: str) -> int:
+    return import_proxy_text(path.read_text(), store, provider)
+
+
+def import_proxy_text(text: str, store: ProxyStore, provider: str, kind: str = "unknown", country: str = "ZZ") -> int:
     if not provider.strip():
         raise ValueError("El proveedor no puede estar vacío")
     parsed = []
-    for number, raw in enumerate(path.read_text().splitlines(), 1):
+    for number, raw in enumerate(text.splitlines(), 1):
         if not raw.strip():
             continue
         fields = raw.strip().split(":", 3)
@@ -31,7 +35,7 @@ def import_proxy_file(path: Path, store: ProxyStore, provider: str) -> int:
     for host, port, username, password in parsed:
         if (host, port) in known:
             continue
-        store.create(provider, host, port, "unknown", "ZZ", username, password)
+        store.create(provider, host, port, kind, country, username, password)
         known.add((host, port))
         added += 1
     return added

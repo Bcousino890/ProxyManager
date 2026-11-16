@@ -19,6 +19,7 @@ from .proxies import ProxyStore
 from .health import ProxyHealth, QueueFull
 from .accounts import AccountError, Accounts, SlidingWindow
 from .transport import PinnedProxyTransport
+from .importer import import_proxy_text
 
 STATIC = Path(__file__).parent / "static"
 SESSION_COOKIE = "pm_session"
@@ -70,6 +71,19 @@ class KeyLimit(BaseModel):
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str
+
+
+class ProxyUpdate(BaseModel):
+    kind: Literal["isp", "residential", "datacenter", "unknown"] | None = None
+    country: str | None = Field(default=None, min_length=2, max_length=2)
+    enabled: bool | None = None
+
+
+class ProxyImport(BaseModel):
+    provider: str
+    text: str = Field(max_length=200_000)
+    kind: Literal["isp", "residential", "datacenter", "unknown"] = "unknown"
+    country: str = Field(default="ZZ", min_length=2, max_length=2)
 
 
 class CreditGrant(BaseModel):
@@ -184,6 +198,24 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             return proxies.create(request.provider, request.host, request.port, request.kind, request.country, request.username, request.password)
         except ValueError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.patch("/v1/proxies/{proxy_id}", status_code=204)
+    def update_proxy(proxy_id: str, body: ProxyUpdate, _: str = Depends(administrator)):
+        if not proxies.update(proxy_id, body.kind, body.country, body.enabled):
+            raise HTTPException(404, "Proxy no encontrado")
+
+    @app.delete("/v1/proxies/{proxy_id}", status_code=204)
+    def delete_proxy(proxy_id: str, _: str = Depends(administrator)):
+        if not proxies.delete(proxy_id):
+            raise HTTPException(404, "Proxy no encontrado")
+
+    @app.post("/v1/proxies/import")
+    def import_proxies(body: ProxyImport, _: str = Depends(administrator)):
+        try:
+            added = import_proxy_text(body.text, proxies, body.provider, body.kind, body.country.upper())
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"added": added, "total": len(proxies.list())}
 
     @app.post("/v1/proxies/{proxy_id}/checks", status_code=202)
     def check_proxy(proxy_id: str, request: ScrapeRequest, background: BackgroundTasks, _: str = Depends(administrator)):
@@ -327,6 +359,10 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         return await run_scrape(request, user["id"], user["id"], None)
 
     # --- administración de clientes (clave de administración) ----------
+    @app.get("/v1/admin/stats")
+    def admin_stats(_: str = Depends(administrator)):
+        return accounts.stats()
+
     @app.get("/v1/admin/users")
     def admin_users(_: str = Depends(administrator)):
         return accounts.list_users()
@@ -339,6 +375,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
             raise HTTPException(404, "Usuario no encontrado") from exc
 
     app.mount("/docs", StaticFiles(directory=STATIC / "docs", html=True), name="docs")
+    app.mount("/admin", StaticFiles(directory=STATIC / "admin", html=True), name="admin")
     app.mount("/app", StaticFiles(directory=STATIC / "app", html=True), name="console")
 
     return app

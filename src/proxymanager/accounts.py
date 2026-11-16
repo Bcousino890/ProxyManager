@@ -224,3 +224,11 @@ class Accounts:
         with self._db() as db:
             rows = db.execute("SELECT id, email, created_at, credits_total, credits_used, plan FROM users ORDER BY created_at").fetchall()
         return [dict(r) for r in rows]
+
+    def stats(self) -> dict:
+        since = time.time() - 86400
+        with self._db() as db:
+            users = db.execute("SELECT count(*) n, coalesce(sum(credits_total),0) t, coalesce(sum(credits_used),0) u FROM users").fetchone()
+            day = db.execute("SELECT count(*) n, coalesce(sum(success),0) ok FROM usage WHERE ts>=?", (since,)).fetchone()
+            total = db.execute("SELECT count(*) n FROM usage").fetchone()
+        return {"users": users["n"], "credits_granted": users["t"], "credits_used": users["u"], "requests_24h": day["n"], "successful_24h": day["ok"], "requests_total": total["n"]}
